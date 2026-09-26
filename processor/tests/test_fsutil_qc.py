@@ -194,3 +194,16 @@ def test_chat_and_terminal_typing_is_not_joined_into_an_email():
     for steps in (chat, term):
         qc.check_steps(steps, [])
         assert not any(f["code"] == "possible_email" for s in steps for f in s["flags"])
+
+
+def test_sensitive_url_flag_says_what_was_found_and_where_it_came_from():
+    step = {"t_start": 1.0, "t_end": 1.0, "action": {"type": "click", "x": 1, "y": 1, "button": "left"}, "flags": [],
+            "reasoning": "", "observations": {},
+            "target": {"status": "ok", "url": "https://riot:s3cr3tT0ken@127.0.0.1:61740/index.html"},
+            "context": {"window_title": "League of Legends", "process": "LeagueClientUx.exe"}}
+    qc.check_context([step])
+    f = next(x for x in step["flags"] if x["code"] == "sensitive_url")
+    assert "a username and password" in f["detail"] and "not from the screen" in f["detail"]
+    assert "s3cr3t" not in f["detail"]
+    qc.redact([step])
+    assert step["target"]["url"] == "https://127.0.0.1:61740/index.html"
