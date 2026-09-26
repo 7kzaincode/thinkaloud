@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -21,6 +22,8 @@ def main(argv=None) -> int:
                    help="Keep typed emails/secrets in the export (not recommended)")
     p.add_argument("--strict", action="store_true",
                    help="Exit 1 if any high-severity flag remains")
+    p.add_argument("--json", action="store_true",
+                   help="Machine-readable progress, one JSON object per line (desktop app)")
     args = p.parse_args(argv)
 
     dirs: list[Path] = []
@@ -40,6 +43,16 @@ def main(argv=None) -> int:
 
     worst = 0
     for d in dirs:
+        if args.json:
+            def log(msg, d=d):
+                print(json.dumps({"event": "progress", "dir": str(d), "message": msg}), flush=True)
+            t = process(d, transcript=args.transcript, model=args.model,
+                        ocr=args.ocr, redact=not args.no_redact, log=log)
+            print(json.dumps({"event": "processed", "dir": str(d), "session_id": t["session_id"],
+                              "summary": t["qc"]["summary"], "high": t["qc"]["high_severity"]}),
+                  flush=True)
+            worst = max(worst, t["qc"]["high_severity"])
+            continue
         print(f"== {d}")
         t = process(d, transcript=args.transcript, model=args.model,
                     ocr=args.ocr, redact=not args.no_redact)

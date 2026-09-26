@@ -8,8 +8,13 @@ export default async function Home() {
   const sessions = await listSessions();
   return (
     <main className="index">
-      <div className="eyebrow">thinkaloud · review queue</div>
-      <h1>Sessions</h1>
+      <div className="index-head">
+        <div>
+          <div className="eyebrow">thinkaloud · review queue</div>
+          <h1>Sessions</h1>
+        </div>
+        <Link href="/record" className="btn primary big">New recording</Link>
+      </div>
       <p className="lede">
         Each session is one expert doing one task while narrating. Step through what they did and why,
         fix the reasoning, clear or raise flags, then mark whether the task was actually done.

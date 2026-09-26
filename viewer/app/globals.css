@@ -251,3 +251,39 @@ textarea.why.carried { color: var(--muted); font-style: italic; }
   .rv-head { grid-template-columns: 1fr; }
   .rv-actions { justify-content: flex-start; }
 }
+
+/* ---------- record ---------- */
+.record { max-width: 720px; margin: 0 auto; padding: 56px 24px 80px; }
+.record h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 4px; }
+.record .lede { color: var(--muted); margin: 0 0 32px; }
+.record code { font-family: var(--font-mono), monospace; background: var(--panel); padding: 2px 6px; border-radius: 4px; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 22px; }
+.field > span { font-weight: 600; font-size: 13px; }
+.field input, .field select {
+  font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink); width: 100%;
+}
+.field input:focus-visible, .field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.field small { color: var(--muted); font-size: 12.5px; }
+.field small.warn { color: var(--warn); }
+.field small.ok { color: var(--ok); }
+.mic-row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; align-items: center; }
+.meter { height: 8px; background: var(--rule); border-radius: 4px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ok); transition: width 90ms linear; }
+.alert { background: var(--high-soft); color: var(--high); padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; white-space: pre-wrap; font-size: 13px; }
+.record-go { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 8px 0 36px; }
+.btn.big { font-size: 15px; padding: 12px 22px; border-radius: 8px; }
+.hint { color: var(--muted); font-size: 12.5px; }
+.hint kbd, .record kbd {
+  font-family: var(--font-mono), monospace; font-size: 11px; border: 1px solid var(--rule);
+  border-bottom-width: 2px; border-radius: 4px; padding: 0 5px;
+}
+.tips { list-style: none; padding: 20px 0 0; margin: 0; border-top: 1px solid var(--rule); display: grid; gap: 10px; color: var(--muted); }
+.tips b { color: var(--ink); font-weight: 600; }
+.status { text-align: center; padding-top: 12vh; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.big-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--high); animation: pulse 1.4s ease-in-out infinite; margin-bottom: 8px; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+.spinner { width: 22px; height: 22px; border: 2.5px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.index-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+.index-head .btn { text-decoration: none; }
