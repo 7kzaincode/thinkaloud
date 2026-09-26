@@ -783,9 +783,9 @@ class Recorder:
         self.t0 = time.perf_counter()
         started_wall = datetime.now().astimezone()
         if self.use_uia and sys.platform == "win32":
-            from uia import UIAWorker
+            from uia import UIAPool
 
-            self.uia = UIAWorker(self.now, focus_epoch=lambda: self.focus_epoch)
+            self.uia = UIAPool(self.now, focus_epoch=lambda: self.focus_epoch)
             self.uia.start()
             self.uia.ready.wait(5)
             if self.uia.available is False:

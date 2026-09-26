@@ -283,3 +283,12 @@ test("a verdict given for earlier wording counts as undecided until confirmed", 
   assert.equal(computeMetrics(t).checklist.met, 1);
   assert.equal(R.verdictOutdated(t.review.checklist![0]), false);
 });
+
+test("recording-level privacy flags can be marked as checked and undone", () => {
+  const t = fresh();
+  R.setSessionFlagChecked(t, "password_masking_off", true);
+  assert.deepEqual(t.review.dismissed_session_flags, ["password_masking_off"]);
+  R.setSessionFlagChecked(t, "password_masking_off", false);
+  assert.deepEqual(t.review.dismissed_session_flags, []);
+  assert.ok(t.review.edited);
+});

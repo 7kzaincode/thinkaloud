@@ -189,7 +189,9 @@ def effective_trajectory(session: Path) -> tuple[dict, list[str]]:
 
 
 def open_privacy_flags(t: dict) -> list[str]:
-    out = [f"{f['code']}" for f in t.get("session_flags", []) if f.get("severity") == "high"]
+    # recording-level flags (e.g. password_masking_off) the reviewer marked as checked
+    checked = set((t.get("review") or {}).get("dismissed_session_flags") or [])
+    out = [f"{f['code']}" for f in t.get("session_flags", []) if f.get("severity") == "high" and f["code"] not in checked]
     for s in t["steps"]:
         out += [f"step {s.get('uid', s['id'])}: {f['code']}" for f in s.get("flags", []) if f.get("severity") == "high"]
     return out
@@ -586,7 +588,10 @@ def safe_frame(session: Path, rel) -> Path | None:
 
 
 def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "claude"),
-                  include_media: bool = False, zip_bundle: bool = True, allow_privacy_flags: bool = False) -> dict:
+                  include_media: bool = False, zip_bundle: bool = True,
+                  allow_privacy_flags: bool | set[str] | list[str] = False) -> dict:
+    """allow_privacy_flags: True exports every recording despite open privacy flags; a set of
+    recording ids does so only for those (the ones the user checked)."""
     formats = [f for f in formats if f in ("dataset", "claude")]
     if not formats:
         raise ds.ExportError("no export format selected")
@@ -618,7 +623,9 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 skipped.append({"id": rid, "reason": "duplicate or invalid recording folder name"})
                 continue
             privacy = open_privacy_flags(t)
-            if privacy and not allow_privacy_flags:
+            allowed = allow_privacy_flags is True or (not isinstance(allow_privacy_flags, bool)
+                                                       and rid in set(allow_privacy_flags))
+            if privacy and not allowed:
                 skipped.append({"id": rid, "reason": f"{len(privacy)} open privacy flag(s): " + "; ".join(privacy),
                                 "privacy": privacy})
                 continue

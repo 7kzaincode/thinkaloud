@@ -170,6 +170,42 @@ found independently by two or three reviewers; they are merged below. Fixed in 0
 | R27 | low | Narration check disclosure omitted "done when"; privacy override listed at most 6 flags (B) | disclosure updated; every flag listed | code review |
 | R28 | low | Scroll window context looked up late (A) | window handle under the pointer captured in the hook | code review |
 
+### Round 3: re-review of the round-2 fixes (A, B at 0d74c8b; C re-checking its own findings)
+
+A: all 15 of its round-2 findings fixed, 5 new low. B: 9 fixed, 4 partial, 4 new (1 medium). C: 11 fixed, 4
+partial, 2 new high. Fixed in 4a356cc.
+
+| # | Sev | Finding (reviewers) | Fix | Evidence |
+|---|---|---|---|---|
+| S1 | high | The Claude "look again" screenshot could show a stale or pre-pause frame as current (A, C) | only a before-image with status `ok` captured after the gap; otherwise an error screenshot result | `test_look_turn_never_repeats_a_screen_from_before_the_pause`, `test_after_a_pause_…` |
+| S2 | high | A retried/late focus answer un-masked a PIN the page had auto-advanced through (C: `••••` → `4821`) | UI Automation answers only add masking: no retries; typing after a password-field click stays masked until the user moves focus | `test_a_failed_focus_lookup_is_never_retried_into_unmasking`, `test_typing_after_a_password_click_stays_masked_until_the_user_moves_focus` |
+| S3 | medium | Exports carried an unsalted 8-hex FNV hash of each redacted email/password (guessable) (B) | subjects are HMAC-SHA256 with a random key per recording (`.subject-key`, never exported); stripped from every exported flag | `test_exports_never_contain_subject_hashes`, `test_subjects_are_keyed_per_recording_and_not_a_plain_hash` |
+| S4 | medium | Off-monitor clicks were still emitted and made the whole bundle fail validation (C) | the call is left out with an error, as documented; cross-check extended to typed text and scroll directions | `test_click_on_another_monitor_is_left_out_and_the_bundle_still_validates`, `test_validator_cross_checks_scroll_directions_and_typed_text` |
+| S5 | medium | Quitting from the menu killed the viewer server before pages could save (B) | server stopped in `will-quit` | code review |
+| S6 | medium | Email split by a click, key or typo correction was missed (B, C) | runs continue across non-typing steps in the same window | `test_email_split_by_a_click_or_key_in_the_same_window_is_still_found`, `test_email_split_by_a_typo_correction_is_found` |
+| S7 | medium | UIA failing to start stored passwords silently; flag was only "warn" (B, C) | pill warning "passwords not masked"; `password_masking_off` high when anything was typed | `test_masking_off_blocks_export_only_when_plain_text_was_typed` |
+| S8 | low-med | URL scan: credentials in URL, JWT values, verifier/SAML/rlkey, redirect targets; false alarms (B, C) | see `sanitize_url` | `test_more_secret_urls_are_caught`, `test_harmless_urls_are_left_alone`, `test_a_secret_inside_a_redirect_parameter_is_caught` |
+| S9 | low-med | A transient file lock became a permanent 400 and left the temp file (B) | rename retried on EPERM/EBUSY/EACCES, temp always removed, I/O errors → 503 (retried) | code review |
+| S10 | low | Focus lookups could wait behind click lookups (A) | priority queue, then (final round) a separate worker | `test_focus_lookups_are_answered_before_queued_click_lookups` |
+| S11 | low | Marked drags' after-image was mid-drag (A) | reset to missing unless captured after the drop | `test_marked_drag_has_no_after_state_from_before_the_drop` |
+| S12 | low | Validator: dataset/Claude files not required to be checksummed (A) | required | `test_bundle_files_must_be_checksummed` |
+| S13 | low | Three jobs could still both take a stale lock; Windows delete-pending raised out of `claim` (A; found while testing) | takeover serialised by `processing.takeover`; `PermissionError` = not claimed | `test_only_one_job_takes_over_a_stale_lock` (now fails on thread exceptions), `test_takeover_guard_is_cleaned_up_and_a_crashed_guard_expires` |
+| S14 | low | Keepalive size counted characters; batch page double submit and wrong count; desktop removed another job's lock; model override sent Claude names to Gemini; consent lacked the Gemini data-use note; links from other sites got a bare 403; corrupt review file aborted the export (B, C) | bytes; busy count and disabled buttons; only own lock; `model_for`; note at consent; top-level page navigation allowed; per-recording skip | `test_model_override_only_applies_to_its_own_provider`, `viewer/lib/access.test.ts`, `test_a_corrupt_review_file_skips_that_recording_only` |
+
+### Final round (A, B, C at 4a356cc)
+
+A: all 5 fixed, 1 new medium. B: 10 fixed, 2 partial, 4 new medium. C: 5 fixed, 2 partial (one by design), 1 new
+high, 2 medium (overlapping A and B). Fixed afterwards (see the commit after 4a356cc).
+
+| # | Sev | Finding (reviewers) | Fix | Evidence |
+|---|---|---|---|---|
+| F1 | high | A focus lookup queued behind a slow click lookup was trusted however late; a PIN typed into a field the page focused by itself was stored (C) | focus lookups on their own UI Automation worker; an answer computed > 0.35 s after the keystroke is treated as unknown (masked) | `test_a_late_focus_answer_is_not_trusted_even_if_the_epoch_did_not_change`, `test_focus_lookups_never_wait_behind_click_lookups` |
+| F2 | medium | The record of edits dropped by a rebase was lost when the follow-up save adopted (B, C) | the server keeps the on-disk rebase record when a same-base save doesn't carry it | code review; standalone check C43 |
+| F3 | medium | Any unlisted file made a bundle invalid: `.DS_Store`, `Thumbs.db`, `__pycache__` from importing the loader (A, C) | unlisted files are warnings again; OS metadata and `__pycache__` ignored; referenced files must still be listed | `test_os_metadata_files_do_not_break_a_valid_bundle`, `test_loading_the_bundle_with_python_does_not_invalidate_it` |
+| F4 | medium | Split-email joining redacted ordinary chat/terminal typing ("Thanks" + Enter + "@maria.garcia …") (B) | Enter/Tab end a run; a joined address needs a common or two-letter TLD | `test_chat_and_terminal_typing_is_not_joined_into_an_email` |
+| F5 | medium | URL scan stopped catching `token_hash`, `tokenId`, `password_reset_code`, `auth_token_v2`; false alarms on word paths and `email_signature=on` (B) | secret words matched as name tokens (strong words always, weak words only with a random-looking value); path tokens need a UUID or letters+digits with no word separators | `test_secret_names_anywhere_in_the_parameter_name`, `test_words_in_paths_and_ordinary_values_are_not_secrets` |
+| F6 | medium | Recording-level privacy flags couldn't be dismissed; the override covered every selected recording (B) | "I checked" on recording-level flags (stored in the review, honoured by the export gate); the override lets through only the recordings listed as skipped | `test_privacy_override_is_per_recording_and_session_flags_can_be_checked`, viewer test "recording-level privacy flags can be marked as checked" |
+
 Found while fixing (not in either review): the test bench was not actually topmost (C30), and the pipeline read the
 system double-click time but not the box size (A17).
 

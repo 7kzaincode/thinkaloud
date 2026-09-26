@@ -79,6 +79,13 @@ const clickText = (sel, text) => `(() => { const b = [...document.querySelectorA
 
 async function main() {
   if (!fs.existsSync(APP)) throw new Error(`build the app first: ${APP}`);
+  // the journey records the whole screen and moves the mouse: only when nobody is using the computer
+  const idle = parseFloat(spawnSync(PY, [path.join(ROOT, "scripts", "e2e_capture.py"), "--idle"], { encoding: "utf-8" }).stdout);
+  const need = Number(process.env.THINKALOUD_REQUIRE_IDLE ?? 120);
+  if (!(idle >= need)) {
+    console.log(`NOT STARTED: someone used this computer ${Math.round(idle)} s ago (need ${need} s of inactivity)`);
+    process.exit(3);
+  }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ta-journey-"));
   const layout = path.join(tmp, "layout.json");
   const tb = spawn(ELECTRON, [path.join(ROOT, "scripts", "testbench")], { env: { ...process.env, THINKALOUD_TB_LAYOUT: layout }, stdio: "ignore" });

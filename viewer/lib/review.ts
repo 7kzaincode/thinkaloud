@@ -242,6 +242,15 @@ export function acceptAiCheck(d: Draft, id: string): void {
   touch(d);
 }
 
+/** Recording-level privacy flags (no step to dismiss them on): mark as checked, or undo. */
+export function setSessionFlagChecked(d: Draft, code: string, checked: boolean): void {
+  const cur = new Set(d.review.dismissed_session_flags ?? []);
+  if (checked) cur.add(code);
+  else cur.delete(code);
+  d.review.dismissed_session_flags = [...cur];
+  touch(d);
+}
+
 /** Same rule as the exporter (export.py dismissal_applies). */
 export function dismissalApplies(dismissed: Flag, fresh: Flag): boolean {
   if (dismissed.code !== fresh.code) return false;

@@ -197,11 +197,14 @@ class UIA:
 class UIAWorker(threading.Thread):
     """Answers lookups in order. `submit` never blocks; `result` waits (bounded)."""
 
-    def __init__(self, clock, timeout_ms: int = 600, max_queue_age_s: float = 0.35, focus_epoch=None):
-        super().__init__(daemon=True, name="uia")
+    def __init__(self, clock, timeout_ms: int = 600, max_queue_age_s: float = 0.35, focus_epoch=None,
+                 name: str = "uia"):
+        super().__init__(daemon=True, name=name)
         self.clock = clock
         # focus_epoch() counts inputs that can move keyboard focus (clicks, Tab, Enter, shortcuts).
-        # A focus answer is valid however late it is computed, as long as the epoch hasn't changed.
+        # A focus answer is only used if the epoch hasn't changed AND the lookup started within
+        # max_queue_age_s of the keystroke: pages also move focus by themselves (a PIN box focused
+        # after navigation, auto-advancing code fields), which the epoch can't see.
         self.focus_epoch = focus_epoch
         self.timeout_ms = timeout_ms
         self.max_queue_age_s = max_queue_age_s
@@ -234,8 +237,8 @@ class UIAWorker(threading.Thread):
                 res = {"status": "unavailable", "error": self.error}
             elif focus_checked and self.focus_epoch() != epoch:
                 res = {"status": "focus_moved"}   # focus may be somewhere else now: the answer would be wrong
-            elif not focus_checked and started - t_event > self.max_queue_age_s:
-                res = {"status": "skipped_stale"}
+            elif started - t_event > self.max_queue_age_s:
+                res = {"status": "skipped_stale"}  # too late to describe the moment of the input
             else:
                 try:
                     res = uia.at_point(*args) if kind == "point" else uia.focused()
@@ -282,3 +285,53 @@ class UIAWorker(threading.Thread):
             self._order += 1
             n = self._order
         self.q.put((2, n, None))
+
+
+class UIAPool:
+    """Two workers with their own UI Automation client: one for click targets, one for keyboard
+    focus. A slow click lookup (a hit test on a busy app, the descend walk) can then never delay
+    the focus lookup that decides whether typing is masked."""
+
+    def __init__(self, clock, focus_epoch=None, timeout_ms: int = 600):
+        self.point = UIAWorker(clock, timeout_ms, focus_epoch=focus_epoch, name="uia-point")
+        self.focus = UIAWorker(clock, timeout_ms, focus_epoch=focus_epoch, name="uia-focus")
+        self._owner: dict[int, UIAWorker] = {}
+
+    def start(self) -> None:
+        self.point.start()
+        self.focus.start()
+
+    @property
+    def ready(self):
+        pool = self
+
+        class _Both:
+            def wait(self, timeout=None):
+                return pool.point.ready.wait(timeout) and pool.focus.ready.wait(timeout)
+        return _Both()
+
+    @property
+    def available(self):
+        if self.point.available is None or self.focus.available is None:
+            return None
+        return bool(self.point.available and self.focus.available)
+
+    @property
+    def error(self):
+        return self.focus.error or self.point.error
+
+    def submit(self, kind: str, t_event: float, *args, epoch: int | None = None) -> int:
+        w = self.focus if kind == "focus" else self.point
+        rid = w.submit(kind, t_event, *args, epoch=epoch)
+        self._owner[rid] = w
+        return rid
+
+    def result(self, rid: int, timeout_s: float = 1.5) -> dict:
+        w = self._owner.pop(rid, None)
+        if w is None:
+            return {"status": "error", "source": "uia", "error": "unknown lookup"}
+        return w.result(rid, timeout_s)
+
+    def stop(self) -> None:
+        self.point.stop()
+        self.focus.stop()

@@ -24,7 +24,10 @@ export async function POST(req: Request) {
   const out = path.join(/*turbopackIgnore: true*/ DATA_DIR, "exports");
   const args = ["export", ...dirs, "--out", out, "--formats", formats.join(",")];
   if (body?.include_media) args.push("--include-media");
-  if (body?.allow_privacy_flags === true) args.push("--allow-privacy-flags");
+  // the user confirmed specific recordings after seeing their privacy flags; only those are let through
+  const allowIds: string[] = Array.isArray(body?.allow_privacy_ids)
+    ? body.allow_privacy_ids.filter((x: unknown) => typeof x === "string" && SAFE_ID.test(x) && ids.includes(x)) : [];
+  for (const id of allowIds) args.push("--allow-privacy-for", id);
   const r = await runEngine(args, undefined, 600_000);
   const j = (r.json ?? null) as Record<string, unknown> | null;
   if (!j) return NextResponse.json({ ok: false, error: `export engine failed (exit ${r.code}): ${r.stderr.slice(-400)}` }, { status: 500 });

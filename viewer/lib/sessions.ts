@@ -184,6 +184,16 @@ export async function saveReview(id: string, incoming: Trajectory):
   const fresh = normalize(JSON.parse(bytes.toString("utf-8")) as Trajectory);
   const sameBase = incoming.review.base_hash === current;
   const merged = rebaseReview(fresh, incoming, current, { record: !sameBase });
+  if (sameBase) {
+    // a page that hasn't adopted the rebased copy yet doesn't know about the rebase record the
+    // previous save wrote: keep it (what was dropped must stay on record and in exports)
+    const prev = await readJson<Trajectory>(path.join(/*turbopackIgnore: true*/ dir, REVIEWED)).catch(() => null);
+    const kept = prev?.review?.rebase_history ?? [];
+    if (kept.length > (merged.review.rebase_history?.length ?? 0)) {
+      merged.review.rebase_history = kept;
+      merged.review.rebased = prev!.review.rebased;
+    }
+  }
   await writeJsonAtomic(path.join(/*turbopackIgnore: true*/ dir, REVIEWED), merged);
   return { ok: true, rebased: !sameBase, trajectory: merged, base_hash: current };
 }
