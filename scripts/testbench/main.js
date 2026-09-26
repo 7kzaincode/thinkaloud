@@ -11,12 +11,13 @@ app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ x: 60, y: 60, width: 1100, height: 760, title: "Testbench Store",
-    autoHideMenuBar: true, webPreferences: { contextIsolation: true } });
+    alwaysOnTop: true, autoHideMenuBar: true, webPreferences: { contextIsolation: true } });
   await win.loadFile(path.join(__dirname, "page.html"));
   // Stay above every other window so injected input can only land here; the driver still
-  // verifies the foreground window before every single action.
-  win.setAlwaysOnTop(true, "screen-saver");
+  // verifies the foreground window and the window under the cursor before every action.
   win.show();
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.moveTop();
   win.focus();
   const ids = ["cart", "flash", "search", "password", "list", "page2", "swatch", "flashpad"];
   const rects = await win.webContents.executeJavaScript(`(${JSON.stringify(ids)}).reduce((o, id) => {
@@ -31,6 +32,6 @@ app.whenReady().then(async () => {
   }
   const layout = process.env.THINKALOUD_TB_LAYOUT;
   const hwnd = Number(win.getNativeWindowHandle().readBigUInt64LE(0));
-  if (layout) fs.writeFileSync(layout, JSON.stringify({ rects: out, pid: process.pid, hwnd }, null, 2));
+  if (layout) fs.writeFileSync(layout, JSON.stringify({ rects: out, pid: process.pid, hwnd, always_on_top: win.isAlwaysOnTop() }, null, 2));
 });
 app.on("window-all-closed", () => app.quit());

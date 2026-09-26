@@ -8,7 +8,7 @@
     {
       "name": "processor succeeded",
       "ok": true,
-      "detail": "\\Temp\\\\thinkaloud-e2e\\\\2026-09-26T00-57-35\", \"message\": \"transcript: 0 segments\"}\n{\"event\": \"processed\", \"dir\": \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\thinkaloud-e2e\\\\2026-09-26T00-57-35\", \"session_id\": \"2026-09-26T00-57-35\", \"summary\": \"12 steps, 12 missing reasoning, 1 masked input\", \"high\": 0}\n"
+      "detail": "\\Temp\\\\thinkaloud-e2e\\\\2026-09-26T01-46-30\", \"message\": \"transcript: 0 segments\"}\n{\"event\": \"processed\", \"dir\": \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\thinkaloud-e2e\\\\2026-09-26T01-46-30\", \"session_id\": \"2026-09-26T01-46-30\", \"summary\": \"17 steps, 17 missing reasoning, 2 masked input\", \"high\": 0}\n"
     },
     {
       "name": "one click step on Add to Cart",
@@ -18,7 +18,7 @@
     {
       "name": "UIA: Add to Cart is a button",
       "ok": true,
-      "detail": "ok button 'Add to Cart' 20.2 ms"
+      "detail": "ok button 'Add to Cart' 21.1 ms"
     },
     {
       "name": "description names the button",
@@ -33,7 +33,7 @@
     {
       "name": "before image finished before the click",
       "ok": true,
-      "detail": "{\"status\": \"ok\", \"file\": \"frames/f000007.png\", \"source\": \"still\", \"capture_seq\": 7, \"t_capture_start\": 1.8946, \"t_capture_end\": 1.9167, \"offset_s\": -0.0883}"
+      "detail": "{\"status\": \"ok\", \"file\": \"frames/f000007.png\", \"source\": \"still\", \"capture_seq\": 7, \"t_capture_start\": 1.8865, \"t_capture_end\": 1.9091, \"offset_s\": -0.0931}"
     },
     {
       "name": "before image shows the un-clicked state (gray swatch)",
@@ -53,7 +53,7 @@
     {
       "name": "search text typed as one step",
       "ok": true,
-      "detail": "['noise cancelling headphones', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022']"
+      "detail": "['noise cancelling headphones', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022']"
     },
     {
       "name": "Enter is its own step",
@@ -68,10 +68,20 @@
     {
       "name": "password typing masked at capture",
       "ok": true,
-      "detail": "[{'type': 'type', 'text': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', 'masked_chars': 14}]"
+      "detail": "[{'type': 'type', 'text': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', 'masked_chars': 14}, {'type': 'type', 'text': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', 'masked_chars': 15}]"
     },
     {
-      "name": "password never written to disk (files, and keystrokes reassembled)",
+      "name": "Tab into the password field is its own step",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "password typed after Tab (no click) is masked by the focus check",
+      "ok": true,
+      "detail": "[{'type': 'type', 'text': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', 'masked_chars': 15}]"
+    },
+    {
+      "name": "passwords never written to disk (files, and keystrokes reassembled)",
       "ok": true,
       "detail": "files: []"
     },
@@ -108,7 +118,7 @@
     {
       "name": "every flash appears in the first frame captured after it (delay <= 1 frame + 80 ms render)",
       "ok": true,
-      "detail": "{\"min\": 0.077, \"median\": 0.086, \"max\": 0.335}"
+      "detail": "{\"min\": 0.198, \"median\": 0.206, \"max\": 0.217}"
     },
     {
       "name": "no state change appears in a frame captured before its click",
@@ -118,30 +128,30 @@
     {
       "name": "no drift: late-run delays match early-run delays (\u00b11 frame)",
       "ok": true,
-      "detail": "{\"flashes\": 4, \"measured\": 4, \"not_found\": 0, \"shown_before_click\": 0, \"delay_s\": {\"min\": 0.077, \"median\": 0.086, \"max\": 0.335}, \"first_half_median_s\": 0.214, \"second_half_median_s\": 0.078, \"frame_period_s\": 0.25, \"duration_s\": 26.8228, \"video_dropped\": 0, \"audio_drift_ppm\": 44.2}"
+      "detail": "{\"flashes\": 6, \"measured\": 6, \"not_found\": 0, \"shown_before_click\": 0, \"delay_s\": {\"min\": 0.198, \"median\": 0.206, \"max\": 0.217}, \"first_half_median_s\": 0.207, \"second_half_median_s\": 0.201, \"frame_period_s\": 0.25, \"duration_s\": 34.4643, \"video_dropped\": 0, \"audio_drift_ppm\": 31.8}"
     },
     {
       "name": "playback.mp4 keeps capture timestamps",
       "ok": true,
-      "detail": "[0.119, 0.395, 0.643, 0.894] vs [0.119, 0.395, 0.643, 0.894]"
+      "detail": "[0.12, 0.407, 0.654, 0.904] vs [0.12, 0.407, 0.654, 0.904]"
     }
   ],
   "sync": {
-    "flashes": 4,
-    "measured": 4,
+    "flashes": 6,
+    "measured": 6,
     "not_found": 0,
     "shown_before_click": 0,
     "delay_s": {
-      "min": 0.077,
-      "median": 0.086,
-      "max": 0.335
+      "min": 0.198,
+      "median": 0.206,
+      "max": 0.217
     },
-    "first_half_median_s": 0.214,
-    "second_half_median_s": 0.078,
+    "first_half_median_s": 0.207,
+    "second_half_median_s": 0.201,
     "frame_period_s": 0.25,
-    "duration_s": 26.8228,
+    "duration_s": 34.4643,
     "video_dropped": 0,
-    "audio_drift_ppm": 44.2
+    "audio_drift_ppm": 31.8
   },
   "steps": [
     "Clicked the Add to Cart button",
@@ -150,7 +160,12 @@
     "Pressed Enter",
     "Clicked the Password field",
     "Typed 14 characters into a password field (masked)",
+    "Clicked the Search field",
+    "Pressed Tab",
+    "Typed 15 characters into a password field (masked)",
     "Scrolled down 8, then up 3",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
     "Clicked the Flash button",
     "Clicked the Flash button",
     "Clicked the Flash button",
@@ -158,8 +173,8 @@
     "Clicked the Go to page 2 link"
   ],
   "run": {
-    "at": "2026-09-26T00:58:04",
-    "flash_seconds": 8.0,
+    "at": "2026-09-26T01:47:07",
+    "flash_seconds": 12.0,
     "flash_interval": 2.0,
     "session_kept": false
   }
