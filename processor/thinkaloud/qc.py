@@ -151,7 +151,7 @@ def summarize(steps: list[dict], session_flags: list[dict]) -> dict:
         ("missing_success_criteria", "no success criteria"),
         ("no_final_screenshot", "no final screenshot"),
     ]
-    parts = [f"{len(steps)} steps"] + [
+    parts = [f"{len(steps)} step{'' if len(steps) == 1 else 's'}"] + [
         f"{counts[c]} {label}{'s' if counts[c] > 1 and label.endswith(('gap', 'secret', 'email')) else ''}"
         for c, label in labels if counts.get(c)]
     return {"summary": ", ".join(parts), "counts": counts,

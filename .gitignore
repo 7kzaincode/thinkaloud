@@ -22,3 +22,9 @@ viewer/tsconfig.tsbuildinfo
 
 .claude/
 .env*
+
+# Desktop build outputs
+desktop/node_modules/
+desktop/dist/
+engine/build/
+engine/dist/

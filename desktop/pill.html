@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+  .pill {
+    box-sizing: border-box; height: 56px; margin: 4px;
+    display: flex; align-items: center; gap: 14px; padding: 0 8px 0 18px;
+    background: #1c1b18; color: #f3f0e8; border-radius: 28px;
+    font: 500 14px/1 "Segoe UI", system-ui, sans-serif;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.28);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #e0452a; flex: none; }
+  .rec .dot { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .time { font: 600 16px/1 "Cascadia Mono", Consolas, monospace; min-width: 58px; }
+  .meter { flex: 1; height: 6px; background: #3a3833; border-radius: 3px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: #7fd09a; transition: width 90ms linear; }
+  .meta { font-size: 12px; color: #a39d91; min-width: 64px; text-align: right; }
+  button {
+    border: 0; border-radius: 22px; height: 40px; padding: 0 16px;
+    background: #f3f0e8; color: #1c1b18; font: 600 13px "Segoe UI", system-ui, sans-serif; cursor: pointer;
+  }
+  button:hover { background: #fff; }
+  .count { font: 600 22px/1 "Segoe UI", system-ui, sans-serif; flex: 1; }
+</style>
+</head>
+<body>
+  <div class="pill" id="pill">
+    <span class="dot"></span>
+    <span class="time" id="time">0:00</span>
+    <span class="meter" title="Mic level"><i id="level"></i></span>
+    <span class="meta" id="meta">get ready</span>
+    <button id="stop" title="Stop recording (F9)">Stop</button>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  $("stop").onclick = () => { $("stop").disabled = true; $("stop").textContent = "Saving…"; window.thinkaloud.stopRecording(); };
+  window.thinkaloud.onRecorder((ev) => {
+    if (ev.event === "countdown") { $("time").textContent = "0:00"; $("meta").textContent = `starts in ${ev.n}`; }
+    if (ev.event === "started") { $("pill").classList.add("rec"); $("meta").textContent = "recording"; $("stop").disabled = false; $("stop").textContent = "Stop"; }
+    if (ev.event === "status") {
+      $("time").textContent = fmt(ev.t);
+      $("level").style.width = `${Math.round(ev.level * 100)}%`;
+      $("meta").textContent = `${ev.events} event${ev.events === 1 ? "" : "s"}`;
+    }
+    if (ev.event === "stopping") { $("pill").classList.remove("rec"); $("meta").textContent = "saving…"; }
+  });
+</script>
+</body>
+</html>

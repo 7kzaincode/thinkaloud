@@ -1,0 +1,82 @@
+{
+  "name": "thinkaloud",
+  "productName": "thinkaloud",
+  "version": "0.1.0",
+  "description": "Record, process and review think-aloud computer-use trajectories",
+  "author": "Zain",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:viewer": "npm --prefix ../viewer run build",
+    "build:engine": "powershell -ExecutionPolicy Bypass -File ../engine/build.ps1",
+    "dist": "npm run build:viewer && npm run build:engine && electron-builder --win",
+    "pack": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "dev.zain.thinkaloud",
+    "productName": "thinkaloud",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "pill.html",
+      "loading.html",
+      "build/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../engine/dist/thinkaloud-engine",
+        "to": "engine"
+      },
+      {
+        "from": "../viewer/.next/standalone",
+        "to": "viewer",
+        "filter": [
+          "**/*",
+          ".next/**/*",
+          "!node_modules/**",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "../viewer/.next/static",
+        "to": "viewer/.next/static"
+      },
+      {
+        "from": "../samples/synthetic-flight",
+        "to": "samples/synthetic-flight",
+        "filter": [
+          "**/*",
+          "!trajectory.reviewed.json"
+        ]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "thinkaloud"
+    },
+    "afterPack": "./afterPack.js"
+  }
+}
