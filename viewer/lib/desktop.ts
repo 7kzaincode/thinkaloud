@@ -16,6 +16,10 @@ export interface DesktopBridge {
   stopMeter(): Promise<void>;
   startRecording(opts: { task: string; criteria: string; device: number | null }): Promise<boolean>;
   stopRecording(): Promise<void>;
+  pauseRecording(paused: boolean): Promise<void>;
+  apiKeyStatus(): Promise<{ stored: boolean; fromEnvironment: boolean; encryption: boolean }>;
+  setApiKey(key: string): Promise<boolean>;
+  clearApiKey(): Promise<boolean>;
   openSessionsFolder(): Promise<void>;
   info(): Promise<{ sessions: string; dev: boolean; version: string }>;
   onMeter(cb: (e: EngineEvent) => void): () => void;

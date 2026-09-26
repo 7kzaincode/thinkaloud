@@ -47,7 +47,7 @@ def test_failure_is_isolated_and_everything_is_persisted(library):
         assert st["state"] == "done" and st["attempts"] == 1 and (library / ok / "trajectory.json").exists()
     br = status(library, "rec-broken")
     assert br["state"] == "failed" and br["attempts"] == 2      # retried once
-    assert br["error"] and "exit" in br["error"]
+    assert br["error"] == "events.jsonl line 1 is not valid JSON (Expecting ',' delimiter); the recording may have been cut off"
     assert not (library / "rec-broken" / "trajectory.json").exists()
     assert "attempt 2" in (library / "rec-broken" / "processing.log").read_text()
     job = json.loads((library.parent / "jobs" / "j0.json").read_text())

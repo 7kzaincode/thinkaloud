@@ -24,6 +24,9 @@
     background: #f3f0e8; color: #1c1b18; font: 600 13px "Segoe UI", system-ui, sans-serif; cursor: pointer;
   }
   button:hover { background: #fff; }
+  button.ghost { background: transparent; color: #f3f0e8; border: 1px solid #5a5750; padding: 0 12px; }
+  button.ghost:hover { background: #2c2a26; }
+  .paused .dot { background: #e0a84a; animation: none; }
   .count { font: 600 22px/1 "Segoe UI", system-ui, sans-serif; flex: 1; }
 </style>
 </head>
@@ -33,16 +36,26 @@
     <span class="time" id="time">0:00</span>
     <span class="meter" title="Mic level"><i id="level"></i></span>
     <span class="meta" id="meta">get ready</span>
+    <button id="pause" class="ghost" title="Pause or resume (F8)">Pause</button>
     <button id="stop" title="Stop recording (F9)">Stop</button>
   </div>
 <script>
   const $ = (id) => document.getElementById(id);
   const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  let paused = false;
+  $("pause").onclick = () => window.thinkaloud.pauseRecording(!paused);
   $("stop").onclick = () => { $("stop").disabled = true; $("stop").textContent = "Saving…"; window.thinkaloud.stopRecording(); };
   window.thinkaloud.onRecorder((ev) => {
     if (ev.event === "countdown") { $("time").textContent = "0:00"; $("meta").textContent = `starts in ${ev.n}`; }
     if (ev.event === "started") { $("pill").classList.add("rec"); $("meta").textContent = "recording"; $("stop").disabled = false; $("stop").textContent = "Stop"; }
-    if (ev.event === "status") {
+    if (ev.event === "paused" || ev.event === "resumed") {
+      paused = ev.event === "paused";
+      $("pill").classList.toggle("paused", paused);
+      $("pill").classList.toggle("rec", !paused);
+      $("pause").textContent = paused ? "Resume" : "Pause";
+      $("meta").textContent = paused ? "paused" : "recording";
+    }
+    if (ev.event === "status" && !ev.paused) {
       $("time").textContent = fmt(ev.t);
       $("level").style.width = `${Math.round(ev.level * 100)}%`;
       $("meta").textContent = `${ev.events} event${ev.events === 1 ? "" : "s"}`;

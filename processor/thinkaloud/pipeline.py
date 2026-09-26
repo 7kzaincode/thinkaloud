@@ -23,9 +23,36 @@ SCHEMA_VERSION = "0.2"
 SESSION_SCHEMA_V02 = "thinkaloud.session/0.2"
 
 
+class InputError(Exception):
+    """The recording folder is incomplete or corrupt (reported to the user as-is)."""
+
+
 def read_events(session: Path) -> list[dict]:
-    lines = (session / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    return [json.loads(l) for l in lines if l.strip()]
+    p = session / "events.jsonl"
+    if not p.exists():
+        raise InputError("events.jsonl is missing: this folder is not a complete recording")
+    out = []
+    for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise InputError(f"events.jsonl line {n} is not valid JSON ({e.msg}); the recording may have been cut off")
+        if not isinstance(ev, dict) or "t" not in ev or "type" not in ev:
+            raise InputError(f"events.jsonl line {n} is not an event (needs 't' and 'type')")
+        out.append(ev)
+    return out
+
+
+def read_meta(session: Path) -> dict:
+    p = session / "meta.json"
+    if not p.exists():
+        raise InputError("meta.json is missing: the recorder did not finish writing this recording")
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise InputError(f"meta.json is not valid JSON ({e.msg})")
 
 
 def write_json_atomic(path: Path, data) -> None:
@@ -38,7 +65,7 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
             ocr: bool = False, redact: bool = True, log=print, playback: bool = True,
             config: SegmentConfig | None = None) -> dict:
     session = Path(session)
-    meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
+    meta = read_meta(session)
     events = read_events(session)
     legacy = meta.get("schema") != SESSION_SCHEMA_V02
     screen = meta.get("screen", {})

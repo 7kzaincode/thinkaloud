@@ -1,0 +1,23 @@
+# Batch post-processing of saved recordings in Docker.
+#   docker compose build
+#   docker compose run --rm processor                      # process every recording in ./sessions
+#   THINKALOUD_CONCURRENCY=4 docker compose run --rm processor
+#   docker compose run --rm processor batch /data/sessions --jobs /data/jobs --force   # reprocess all
+#
+# Job status goes to ./jobs and each recording's processing.json, which the viewer's
+# Recordings page reads. Capture itself is Windows-native (recorder/); this only post-processes.
+services:
+  processor:
+    build: ./processor
+    image: thinkaloud-processor
+    volumes:
+      - ./sessions:/data/sessions
+      - ./jobs:/data/jobs
+      - thinkaloud-models:/models
+    environment:
+      THINKALOUD_CONCURRENCY: ${THINKALOUD_CONCURRENCY:-2}
+      THINKALOUD_WHISPER_MODEL: ${THINKALOUD_WHISPER_MODEL:-base.en}
+    command: ["batch", "/data/sessions", "--jobs", "/data/jobs", "--retries", "1"]
+
+volumes:
+  thinkaloud-models:

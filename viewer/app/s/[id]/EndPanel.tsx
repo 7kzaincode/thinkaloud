@@ -97,8 +97,8 @@ export default function EndPanel({ id, t, edit, aiStatus }: {
         <div className="eyebrow" style={{ marginBottom: 8 }}>AI assistant (suggestions only)</div>
         {aiStatus === null ? <div className="none-yet small">Checking configuration…</div> : !aiStatus.configured ? (
           <div className="none-yet small">
-            Not configured: {aiStatus.reason}. Manual review works without it. To enable, set <code>ANTHROPIC_API_KEY</code> for
-            the app (see README → AI-assisted review).
+            Not configured: {aiStatus.reason}. Manual review works without it. To enable, add a key in{" "}
+            <a href="/settings">Settings</a> (desktop app) or set <code>ANTHROPIC_API_KEY</code> for the viewer server.
           </div>
         ) : (
           <>
