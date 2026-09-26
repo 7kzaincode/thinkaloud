@@ -35,6 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ELECTRON = ROOT / "desktop" / "node_modules" / "electron" / "dist" / "electron.exe"
 PASSWORD = "Hunter2!secret"
+PASSWORD2 = "Tabbed#Secret9!"    # typed after Tab moves focus into the password field (no click)
 SEARCH = "noise cancelling headphones"
 
 
@@ -80,6 +81,10 @@ def main() -> int:
         time.sleep(0.2)
     layout = json.loads(layout_path.read_text())
     rects, tb_hwnd = layout["rects"], layout["hwnd"]
+    if layout.get("always_on_top") is False:
+        if tb:
+            tb.terminate()
+        raise SystemExit("ABORTED before any recorded input: the test window could not be made always-on-top")
     time.sleep(1.0)
     sys.path.insert(0, str(ROOT / "recorder"))
     import winctx
@@ -141,6 +146,14 @@ def main() -> int:
         time.sleep(1.0)
         click("password", 0.5)
         type_text(PASSWORD)
+        time.sleep(1.2)
+        # Focus reaches the password field by keyboard: masking must come from the focus check.
+        click("search", 0.6)
+        guard()
+        k.press(Key.tab)
+        k.release(Key.tab)
+        time.sleep(0.8)
+        type_text(PASSWORD2)
         time.sleep(1.2)
         p = center(rects["list"])
         guard(p)
@@ -290,12 +303,18 @@ def check(session: Path, rects: dict, saved: dict, rc: int, proc) -> dict:
     masked = [s for s in typed if s["action"].get("masked_chars")]
     ok("password typing masked at capture", masked and masked[0]["action"]["masked_chars"] == len(PASSWORD),
        str([s["action"] for s in masked]))
+    tab = [k for k, s in enumerate(steps) if s["action"] == {"type": "key", "key": "tab"}]
+    ok("Tab into the password field is its own step", tab)
+    after_tab = [s["action"] for s in steps[tab[0] + 1:] if s["action"]["type"] == "type"][:1] if tab else []
+    ok("password typed after Tab (no click) is masked by the focus check",
+       after_tab and after_tab[0].get("masked_chars") == len(PASSWORD2) == len(after_tab[0]["text"])
+       and set(after_tab[0]["text"]) == {"•"}, str(after_tab))
     leaked = [p.name for p in session.rglob("*") if p.is_file() and p.suffix in (".json", ".jsonl") and
-              PASSWORD in p.read_text(encoding="utf-8", errors="ignore")]
+              any(pw in p.read_text(encoding="utf-8", errors="ignore") for pw in (PASSWORD, PASSWORD2))]
     evs = [json.loads(l) for l in (session / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     keys = "".join(e["key"] if e["type"] == "key" and len(e["key"]) == 1 else "|" for e in evs)
-    ok("password never written to disk (files, and keystrokes reassembled)",
-       not leaked and PASSWORD[:6] not in keys, f"files: {leaked}")
+    ok("passwords never written to disk (files, and keystrokes reassembled)",
+       not leaked and PASSWORD[:6] not in keys and PASSWORD2[:6] not in keys, f"files: {leaked}")
 
     # --- scroll ----------------------------------------------------------------------------
     sc = [s for s in steps if s["action"]["type"] == "scroll"]

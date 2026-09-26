@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-26T05:16:27.602Z",
+  "at": "2026-09-26T05:44:26.091Z",
   "checks": [
     {
       "name": "record form: microphones listed",
@@ -24,7 +24,7 @@
     {
       "name": "stopping processes the recording and opens the review",
       "ok": true,
-      "detail": "2026-09-26T01-15-47"
+      "detail": "2026-09-26T01-43-48"
     },
     {
       "name": "review page shows the task",
@@ -43,13 +43,13 @@
     },
     {
       "name": "step described from UI Automation in the app",
-      "ok": false,
-      "detail": "Clicked the Testbench Store document | Clicked the Testbench Store document | Clicked the Search field | Typed \"noise cancelling headphones\" | Pressed Enter | Clicked the Password field | Typed 14 characters into a password field (masked) | Scrolled down 8, then up 3 | Clicked the Flash button | Cli"
+      "ok": true,
+      "detail": "Clicked the Testbench Store document | Clicked the Add to Cart button"
     },
     {
       "name": "replay plays",
       "ok": true,
-      "detail": "{\"t\":25.489,\"ready\":4,\"dur\":25.489}"
+      "detail": "{\"t\":6.0184,\"ready\":4,\"dur\":25.18}"
     },
     {
       "name": "timeline shows the replay position",
@@ -59,17 +59,17 @@
     {
       "name": "review autosaves",
       "ok": true,
-      "detail": "Review saved 01:16 AM"
+      "detail": "Review saved 01:44 AM"
     },
     {
       "name": "export succeeds and the bundle validates",
       "ok": true,
-      "detail": "{\"ok\":true,\"v\":true,\"errors\":[],\"problems\":[\"2026-09-26T01-15-47 (claude): step s000033: password characters were masked at capture; the typed text is unknown, so this action is omitted\"]}"
+      "detail": "{\"ok\":true,\"v\":true,\"errors\":[],\"problems\":[\"2026-09-26T01-43-48 (claude): step s000033: password characters were masked at capture; the typed text is unknown, so this action is omitted\"]}"
     },
     {
       "name": "export downloads as a zip",
       "ok": true,
-      "detail": "{\"status\":200,\"type\":\"application/zip\",\"bytes\":10712113}"
+      "detail": "{\"status\":200,\"type\":\"application/zip\",\"bytes\":10681901}"
     },
     {
       "name": "downloaded bundle validates independently",
@@ -87,6 +87,6 @@
       "detail": "{\"status\":\"processed\",\"steps\":\"11\",\"review\":\"Task done1/1 items met\"}"
     }
   ],
-  "passed": 16,
+  "passed": 17,
   "total": 17
 }
