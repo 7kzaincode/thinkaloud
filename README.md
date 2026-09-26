@@ -301,8 +301,11 @@ flags it `drag_not_represented`). Steps have stable `uid`s (`s` + first event se
   address typed in two bursts, and an address in the narration transcript. **The screen may still show it**: QC
   raises `redacted_value_on_screen`, and `--ocr` (Tesseract) flags emails visible in screenshots. Screenshots are
   not blurred.
-- Page URLs with secret-looking parameters (query or fragment, any spelling: `accessToken`, `api_key`, `jwt`,
-  `sessionid`, …) or a token in a reset/verify/magic-link path are flagged `sensitive_url` and stripped.
+- Page addresses come from Windows accessibility data, not from the screen (apps built on web pages report one
+  even without an address bar). A `user:password@` part is dropped when recording (the League of Legends client, for
+  example, reports a local login token that way). Addresses with secret-looking parameters (query or fragment, any
+  spelling: `accessToken`, `api_key`, `jwt`, `sessionid`, …) or a token in a reset/verify/magic-link path are flagged
+  `sensitive_url` and stripped; the flag says what was found and whether there can be anything to check on screen.
 - The recorder captures the whole monitor while recording. Use Pause for anything private.
 - AI review sends only what each button lists, only after consent. The API key never reaches the browser.
 - The viewer listens on 127.0.0.1 only. Every request (pages, API, media) is refused unless its Host is a loopback

@@ -15,7 +15,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 CONTROL_TYPES = {
     50000: "button", 50001: "calendar", 50002: "checkbox", 50003: "combobox", 50004: "edit",
@@ -103,6 +103,10 @@ class UIA:
             return None
 
     def _document_url(self, el) -> tuple[str | None, str]:
+        url, status = self._raw_document_url(el)
+        return (strip_url_credentials(url) if url else url), status
+
+    def _raw_document_url(self, el) -> tuple[str | None, str]:
         cur, hops = el, 0
         while cur is not None and hops < MAX_DOCUMENT_HOPS:
             try:
@@ -192,6 +196,19 @@ class UIA:
         if not el:
             return {"status": "not_found"}
         return {"status": "ok", **self._props(el)}
+
+
+def strip_url_credentials(url: str) -> str:
+    """Drop "user:password@" from an address before it is written anywhere. Apps built on web
+    pages (e.g. the League of Legends client) report addresses like
+    https://riot:<token>@127.0.0.1:61740/index.html: that token is never shown on screen."""
+    try:
+        u = urlsplit(url)
+    except ValueError:
+        return url
+    if "@" not in u.netloc:
+        return url
+    return urlunsplit((u.scheme, u.netloc.rsplit("@", 1)[1], u.path, u.query, u.fragment))
 
 
 class UIAWorker(threading.Thread):

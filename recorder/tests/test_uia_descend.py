@@ -136,3 +136,9 @@ def test_both_real_uia_clients_start():
         assert pool.result(pool.submit("focus", time.perf_counter(), epoch=1), 3)["status"] in ("ok", "not_found")
     finally:
         pool.stop()
+
+
+def test_page_address_credentials_are_dropped_before_anything_is_written():
+    assert uia.strip_url_credentials("https://riot:tok3n@127.0.0.1:61740/index.html") == "https://127.0.0.1:61740/index.html"
+    assert uia.strip_url_credentials("https://example.com/a?b=1#c") == "https://example.com/a?b=1#c"
+    assert uia.strip_url_credentials("file:///C:/x/page.html") == "file:///C:/x/page.html"

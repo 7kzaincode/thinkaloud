@@ -378,31 +378,40 @@ def _token_like(seg: str) -> bool:
             and any(c.isdigit() for c in seg) and any(c.isalpha() for c in seg))
 
 
-def sanitize_url(url: str, _depth: int = 0) -> tuple[str, bool]:
-    """(url with secrets removed, whether anything sensitive was found). Query and fragment
-    parameters with secret-like names, tokens in magic-link style paths, and JWTs anywhere in
-    the path are replaced."""
+def url_secrets(url: str, _depth: int = 0) -> tuple[str, list[str]]:
+    """(url with secrets removed, what kinds of secret were found). Checks a username and
+    password in the address, query and fragment parameters with secret-like names or JWT values,
+    secrets inside redirect parameters, and tokens in magic-link style paths."""
     from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
     u = urlsplit(url)
-    found = False
+    kinds: list[str] = []
     netloc = u.netloc
     if "@" in netloc:  # user:password@host
-        netloc, found = netloc.rsplit("@", 1)[1], True
+        netloc = netloc.rsplit("@", 1)[1]
+        kinds.append("a username and password")
     params = parse_qsl(u.query, keep_blank_values=True) + parse_qsl(u.fragment, keep_blank_values=True)
     if any(_sensitive_param(k, v) or JWT_RE.match(v or "") for k, v in params):
-        found = True
-    elif _depth < 2 and any(("?" in v or "#" in v or "@" in v) and sanitize_url(v, _depth + 1)[1] for _, v in params):
-        found = True  # e.g. ?next=/account?token=... (a redirect target carrying a secret)
+        kinds.append("token- or password-like parameters")
+    elif _depth < 2 and any(("?" in v or "#" in v or "@" in v) and url_secrets(v, _depth + 1)[1] for _, v in params):
+        kinds.append("a secret inside a redirect parameter")  # e.g. ?next=/account?token=...
     segs = u.path.split("/")
     for i, seg in enumerate(segs):
         prev = re.sub(r"[^a-z0-9]", "", segs[i - 1].lower()) if i else ""
         if JWT_RE.match(seg) or (prev in TOKEN_PATH_BEFORE and _token_like(seg)):
-            segs[i], found = REDACTED, True
-    if not found:
-        return url, False
+            segs[i] = REDACTED
+            if "a token in the path" not in kinds:
+                kinds.append("a token in the path")
+    if not kinds:
+        return url, []
     return urlunsplit((u.scheme, netloc, "/".join(segs), REDACTED if u.query else "",
-                       REDACTED if u.fragment else "")), True
+                       REDACTED if u.fragment else "")), kinds
+
+
+def sanitize_url(url: str) -> tuple[str, bool]:
+    """(url with secrets removed, whether anything sensitive was found)."""
+    clean, kinds = url_secrets(url)
+    return clean, bool(kinds)
 
 
 def check_context(steps: list[dict]) -> None:
@@ -415,10 +424,15 @@ def check_context(steps: list[dict]) -> None:
                                    "An email address appears in the page URL, window title or element name.",
                                    "\n".join(texts)))
         url = tgt.get("url")
-        if url and sanitize_url(url)[1]:
-            s["flags"].append(flag("sensitive_url", "high",
-                                   "The page URL has token/key/password-like parameters or a token in its path.",
-                                   url))
+        kinds = url_secrets(url)[1] if url else []
+        if kinds:
+            s["flags"].append(flag(
+                "sensitive_url", "high",
+                f"The app reported a page address containing {' and '.join(kinds)}. It was removed from the saved "
+                "data and from exports. The address comes from Windows accessibility data, not from the screen: in "
+                "an app without an address bar (a game launcher, a desktop app built on web pages) nothing is "
+                "visible; in a web browser, check whether the address bar shows it in the screenshots.",
+                url))
 
 
 def redact(steps: list[dict]) -> int:
