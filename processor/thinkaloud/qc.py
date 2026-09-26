@@ -11,10 +11,13 @@ Step checks
   possible_email      typed text contains an email address
   possible_secret     typed text looks like a password (see looks_like_password)
   email_in_screenshot OCR found an email address in the step's screenshot (--ocr)
+  masked_input        (info) the recorder masked typed characters in a password field
+  missing_after_state (warn) no screen was captured between this action and the next
+  stale_before_state  (info) the "before" screen is older than expected
 
 Session checks
   missing_task, missing_success_criteria, no_final_screenshot,
-  unassigned_narration, no_narration
+  unassigned_narration, no_narration, legacy_recording (info)
 """
 from __future__ import annotations
 
@@ -55,7 +58,18 @@ def looks_like_password(text: str, context: str = "", after_email: bool = False)
     return None
 
 
-def check_steps(steps: list[dict], segments: list[dict]) -> None:
+def paused_between(pauses: list, a: float, b: float) -> float:
+    total = 0.0
+    for p0, p1 in pauses or []:
+        if p0 is None:
+            continue
+        p1 = b if p1 is None else p1
+        total += max(0.0, min(b, p1) - max(a, p0))
+    return total
+
+
+def check_steps(steps: list[dict], segments: list[dict], pauses: list | None = None,
+                legacy: bool = False) -> None:
     """Mutates each step's 'flags' list."""
     prev_end = 0.0
     last_typed_email = False
@@ -66,7 +80,7 @@ def check_steps(steps: list[dict], segments: list[dict]) -> None:
         if not s.get("reasoning", "").strip():
             s["flags"].append(flag("missing_reasoning", "warn", "No narration aligned to this step."))
 
-        gap = s["t_start"] - prev_end
+        gap = s["t_start"] - prev_end - paused_between(pauses, prev_end, s["t_start"])
         if gap > IDLE_GAP:
             talked = any(g["t_end"] > prev_end and g["t_start"] < s["t_start"] for g in segments)
             s["flags"].append(flag(
@@ -74,6 +88,24 @@ def check_steps(steps: list[dict], segments: list[dict]) -> None:
                 f"{gap:.1f}s with no actions before this step"
                 + (" (expert was narrating)" if talked else " (silent)")))
         prev_end = max(prev_end, s["t_end"])
+
+        obs = s.get("observations") or {}
+        if not legacy and (obs.get("after") or {}).get("status") == "missing":
+            s["flags"].append(flag("missing_after_state", "warn",
+                                   "No screen was captured between this action and the next "
+                                   f"({(obs['after'].get('reason') or 'unknown reason')})."))
+        if (obs.get("before") or {}).get("status") == "stale":
+            s["flags"].append(flag("stale_before_state", "info",
+                                   "The 'before' screen was captured well before this action."))
+
+        if a["type"] == "type" and a.get("masked_chars"):
+            s["flags"].append(flag("masked_input", "info",
+                                   f"{a['masked_chars']} character(s) typed into a password field were "
+                                   "masked by the recorder and never stored."))
+            unmasked = a["text"].replace("•", "")
+            if not unmasked.strip():
+                last_typed_email = False
+                continue
 
         if a["type"] == "type":
             text = a["text"]
@@ -89,8 +121,12 @@ def check_steps(steps: list[dict], segments: list[dict]) -> None:
 
 
 def check_session(meta: dict, steps: list[dict], segments: list[dict],
-                  final_screenshot: str | None) -> list[dict]:
+                  final_screenshot: str | None, legacy: bool = False) -> list[dict]:
     out = []
+    if legacy:
+        out.append(flag("legacy_recording", "info",
+                        "Recorded with recorder 0.1: no after-state screenshots, no video, "
+                        "no click targets; before-screenshots were grabbed at action time."))
     if not meta.get("task"):
         out.append(flag("missing_task", "warn", "No task description was recorded."))
     if not meta.get("success_criteria"):
@@ -125,12 +161,17 @@ def ocr_emails(steps: list[dict], session_dir) -> int:
     from PIL import Image
 
     found: dict[str, list[str]] = {}
-    for shot in {s["screenshot"] for s in steps if s.get("screenshot")}:
+    def shots(s):
+        obs = s.get("observations") or {}
+        files = {(obs.get(k) or {}).get("file") for k in ("before", "after")} | {s.get("screenshot")}
+        return {f for f in files if f}
+
+    for shot in {f for s in steps for f in shots(s)}:
         text = pytesseract.image_to_string(Image.open(session_dir / shot))
         found[shot] = sorted(set(EMAIL_RE.findall(text)))
     n = 0
     for s in steps:
-        emails = found.get(s.get("screenshot") or "", [])
+        emails = sorted({e for f in shots(s) for e in found.get(f, [])})
         if emails:
             s["flags"].append(flag("email_in_screenshot", "high",
                                    f"{len(emails)} email address(es) visible in screenshot."))
@@ -148,6 +189,8 @@ def summarize(steps: list[dict], session_flags: list[dict]) -> dict:
         ("possible_secret", "possible secret"),
         ("possible_email", "typed email"),
         ("email_in_screenshot", "email on screen"),
+        ("missing_after_state", "missing after-state"),
+        ("masked_input", "masked input"),
         ("missing_success_criteria", "no success criteria"),
         ("no_final_screenshot", "no final screenshot"),
     ]

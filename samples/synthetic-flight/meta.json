@@ -1,21 +1,84 @@
 {
+  "schema": "thinkaloud.session/0.2",
   "session_id": "synthetic-flight",
   "task": "Find and select the cheapest nonstop flight from Toronto (YYZ) to San Francisco (SFO) on Oct 17.",
   "success_criteria": "Checkout page shows the cheapest nonstop YYZ-SFO flight on Oct 17.",
   "started_at": "2026-09-26T10:00:00-04:00",
   "duration_s": 71.5,
+  "clock": {
+    "source": "synthetic",
+    "unit": "s",
+    "origin": "recording start (t0)"
+  },
   "screen": {
     "w": 1600,
     "h": 900,
     "left": 0,
     "top": 0
   },
-  "audio": {
-    "file": null,
-    "sample_rate": 16000,
-    "offset_s": 0.0,
+  "coordinate_space": {
+    "space": "synthetic frame pixels",
+    "frame_origin": [
+      0,
+      0
+    ],
+    "frame_size": [
+      1600,
+      900
+    ],
+    "monitor_index": 1,
+    "monitor_dpi_scale": 1.0,
+    "process_dpi_awareness": "per_monitor"
+  },
+  "capture": {
+    "fps": 4.0,
+    "frames": 287,
+    "grab_errors": 0,
+    "settle_s": 0.6,
+    "candidate_gap_s": 1.0,
+    "ring_size": 6,
+    "double_click_time_s": 0.5
+  },
+  "stills": {
+    "index": "frames/stills.jsonl",
+    "saved": 35,
+    "failed": 0,
+    "dropped": 0
+  },
+  "video": {
+    "file": "screen.mkv",
+    "codec": "h264",
+    "frames": 287,
+    "dropped": 0,
+    "index": "video_frames.jsonl",
+    "pts": "capture midpoint, ms on recording clock",
     "error": null
   },
+  "audio": {
+    "file": "audio.wav",
+    "sample_rate": 16000,
+    "samples": 1160000,
+    "offset_s": 0.0,
+    "offset_method": "synthetic (placed exactly)",
+    "clock_drift_ppm": 0.0,
+    "overflows": 0,
+    "error": null
+  },
+  "uia": {
+    "enabled": true,
+    "available": true,
+    "error": null
+  },
+  "input": {
+    "events": 57,
+    "masked_keys": 12,
+    "pauses": [],
+    "hotkeys": {
+      "stop": "F9",
+      "pause": "F8"
+    }
+  },
+  "errors": [],
   "platform": "synthetic",
-  "recorder_version": "synthetic"
+  "recorder_version": "synthetic-0.2"
 }

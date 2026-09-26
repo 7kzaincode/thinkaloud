@@ -1,12 +1,18 @@
 # Real recordings never get committed: audio, screenshots, keystrokes, transcripts.
 sessions/
+exports/
+jobs/
 *.wav
+!samples/synthetic-flight/audio.wav
 **/frames/
 !samples/synthetic-flight/frames/
+!processor/tests/fixtures/**/frames/
 events.jsonl
 !samples/synthetic-flight/events.jsonl
+!processor/tests/fixtures/**/events.jsonl
 trajectory.reviewed.json
 *.trajectory.json
+*.tmp
 
 # Python
 .venv/
