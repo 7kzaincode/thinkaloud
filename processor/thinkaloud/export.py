@@ -456,7 +456,8 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
             recs.append(entry)
         if not recs:
             raise ds.ExportError("nothing to export: " + "; ".join(errors))
-        shutil.copy2(Path(ds.__file__), tmp / "thinkaloud_dataset.py")
+        # frozen builds (desktop app) report a .pyc path; engine/build.ps1 puts dataset.py beside it
+        shutil.copy2(Path(ds.__file__).with_name("dataset.py"), tmp / "thinkaloud_dataset.py")
         (tmp / "README.md").write_text(ds.BUNDLE_README, encoding="utf-8")
         asset_list = []
         for p in sorted(tmp.rglob("*")):
