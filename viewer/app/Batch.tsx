@@ -87,13 +87,16 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
 
   const process = async (ids: string[]) => {
     setMsg(null);
-    const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, concurrency, force }) });
-    const j = await r.json();
-    setMsg(r.ok ? `Started job ${j.job_id} for ${ids.length} recording(s)` : `Could not start: ${j.error}`);
+    const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, concurrency, force }) })
+      .catch(() => null);
+    const j = r ? await r.json().catch(() => ({ error: `HTTP ${r.status}` })) : { error: "network error" };
+    setMsg(r?.ok ? `Started job ${j.job_id} for ${ids.length} recording(s)` : `Could not start: ${j.error}`);
     setTimeout(refresh, 500);
   };
 
   const exportable = [...selected].filter((id) => rows.find((r) => r.id === id)?.processed);
+  const inFlight = (r: SessionSummary) => r.processing?.state === "running" || r.processing?.state === "queued";
+  const newIds = rows.filter((r) => !r.processed && !inFlight(r)).map((r) => r.id);
 
   return (
     <main className="index wide">
@@ -135,7 +138,7 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
           {[1, 2, 3, 4].map((n) => <option key={n}>{n}</option>)}</select></label>
         <label className="small"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> reprocess up-to-date</label>
         <button className="btn" disabled={!selected.size} onClick={() => process([...selected])}>Process selected ({selected.size})</button>
-        <button className="btn" disabled={!rows.some((r) => !r.processed)} onClick={() => process(rows.filter((r) => !r.processed).map((r) => r.id))}>Process all new</button>
+        <button className="btn" disabled={!newIds.length} onClick={() => process(newIds)}>Process all new ({newIds.length})</button>
         <button className="btn" disabled={!exportable.length} onClick={() => setExporting(true)}>Export selected ({exportable.length})</button>
       </div>
       {msg && <div className="small faint" aria-live="polite">{msg}</div>}
@@ -201,7 +204,7 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
         Narrated = steps with at least one narration segment of their own (carried or reviewer-written reasoning doesn't count).
         Words / step = narration words attached to steps ÷ all steps. Review counts are human decisions only.
       </p>
-      {exporting && <ExportDialog ids={exportable} onClose={() => setExporting(false)} dirty={false} />}
+      {exporting && <ExportDialog ids={exportable} onClose={() => setExporting(false)} />}
     </main>
   );
 }

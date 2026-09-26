@@ -57,6 +57,11 @@ export function setReasoning(d: Draft, i: number, text: string): void {
     const resolved = s.flags.filter((f) => f.code === "missing_reasoning");
     s.flags = s.flags.filter((f) => f.code !== "missing_reasoning");
     s.dismissed_flags = [...(s.dismissed_flags ?? []), ...resolved];
+  } else {
+    // cleared again: the step has no reasoning, so the flag applies again
+    const back = (s.dismissed_flags ?? []).filter((f) => f.code === "missing_reasoning");
+    s.dismissed_flags = (s.dismissed_flags ?? []).filter((f) => f.code !== "missing_reasoning");
+    s.flags.push(...back);
   }
   touch(d, s);
 }
@@ -127,7 +132,7 @@ export function applyAiResult(d: Draft, r: AiResult): void {
     const item = (d.review.checklist ?? []).find((x) => x.id === c.item_id);
     if (item) item.ai_check = { run_id: r.run.id, verdict: c.verdict, evidence: c.evidence, input_hash: c.input_hash };
   }
-  d.review.edited = true;
+  // not a human edit: review.edited stays as it was
 }
 
 // ---- staleness --------------------------------------------------------------------
@@ -157,7 +162,7 @@ export function decideAssessment(d: Draft, uid: string, decision: "accepted" | "
   const s = d.steps.find((x) => stepKey(x) === uid);
   if (!a || !s) return;
   if (decision === "accepted" && assessmentStale(d, a)) throw new Error("stale suggestion: re-run the check first");
-  const isProv = (f: Flag) => f.provenance?.ai_run_id === a.run_id && f.provenance?.suggestion === `assessment:${uid}`;
+  const isProv = (f: Flag) => f.provenance?.suggestion === `assessment:${uid}`;
   s.flags = s.flags.filter((f) => !isProv(f));
   a.decision = decision;
   a.decided_at = decision ? nowIso() : undefined;
@@ -209,7 +214,19 @@ export function setItemVerdict(d: Draft, id: string, verdict: ChecklistItem["hum
   if (!item) return;
   item.human_verdict = verdict;
   item.human_verdict_source = verdict ? "reviewer" : undefined;
+  item.verdict_text = verdict ? item.text : undefined;
+  delete item.accepted_from;
   touch(d);
+}
+
+/** The verdict was given for different wording than the item has now. */
+export function verdictOutdated(item: ChecklistItem): boolean {
+  return !!item.human_verdict && item.verdict_text !== undefined && item.verdict_text !== item.text;
+}
+
+/** The latest AI check would give a different verdict than the one the human holds now. */
+export function aiCheckDiffers(item: ChecklistItem): boolean {
+  return !!item.ai_check && VERDICT_MAP[item.ai_check.verdict] !== item.human_verdict;
 }
 
 const VERDICT_MAP = { supported: "met", contradicted: "not_met", unknown: "unclear" } as const;
@@ -220,6 +237,8 @@ export function acceptAiCheck(d: Draft, id: string): void {
   if (checkStale(d, item)) throw new Error("stale suggestion: re-run the check first");
   item.human_verdict = VERDICT_MAP[item.ai_check.verdict];
   item.human_verdict_source = "accepted_ai_suggestion";
+  item.accepted_from = { run_id: item.ai_check.run_id, verdict: item.ai_check.verdict, input_hash: item.ai_check.input_hash };
+  item.verdict_text = item.text;
   touch(d);
 }
 
@@ -229,7 +248,8 @@ export function acceptAiCheck(d: Draft, id: string): void {
  * that still applies: per-step edits are carried to the step with the same key and the
  * same action; everything that no longer matches is listed in review.rebased.dropped.
  */
-export function rebaseReview(fresh: Trajectory, reviewed: Trajectory, freshHash: string): Trajectory {
+export function rebaseReview(fresh: Trajectory, reviewed: Trajectory, freshHash: string,
+                             opts: { record?: boolean } = { record: true }): Trajectory {
   const out: Trajectory = structuredClone(fresh);
   const old = new Map(reviewed.steps.map((s) => [stepKey(s), s]));
   // reviews made on schema 0.1 steps have no uids: match those by start time + action type
@@ -241,36 +261,54 @@ export function rebaseReview(fresh: Trajectory, reviewed: Trajectory, freshHash:
     if (!o || kept.has(o)) continue;
     if (o.action.type !== s.action.type) continue;
     kept.add(o);
-    if (o.reasoning_source === "reviewer") {
+    if (o.reasoning_source === "reviewer" || o.reasoning_original) {
+      // a reviewer wrote, edited or cleared this reasoning: their version wins
       s.reasoning_original = { text: s.reasoning, source: s.reasoning_source, carried_from: s.carried_from };
-      s.reasoning = o.reasoning;
-      s.reasoning_source = "reviewer";
+      s.reasoning = typeof o.reasoning === "string" ? o.reasoning.slice(0, 5000) : "";
+      s.reasoning_source = s.reasoning.trim() ? "reviewer" : null;
       s.carried_from = null;
     }
-    const sig = (f: Flag) => `${f.code}|${f.detail}`;
-    const dismissed = new Set((o.dismissed_flags ?? []).map(sig));
-    s.dismissed_flags = s.flags.filter((f) => dismissed.has(sig(f)));
-    s.flags = s.flags.filter((f) => !dismissed.has(sig(f)));
+    // dismissals match by flag code: detail text can change between processing runs (e.g. seconds)
+    const dismissedCodes = new Set((o.dismissed_flags ?? []).filter((f) => f?.source !== "reviewer").map((f) => f.code));
+    s.dismissed_flags = s.flags.filter((f) => dismissedCodes.has(f.code));
+    s.flags = s.flags.filter((f) => !dismissedCodes.has(f.code));
     if (s.reasoning_source === "reviewer") {
       const mr = s.flags.filter((f) => f.code === "missing_reasoning");
       s.flags = s.flags.filter((f) => f.code !== "missing_reasoning");
       s.dismissed_flags.push(...mr);
     }
-    s.flags.push(...o.flags.filter((f) => f.source === "reviewer"));
-    s.edited = o.edited;
+    const reviewerFlags = (o.flags ?? []).filter((f) => f?.source === "reviewer" && typeof f.code === "string")
+      .map((f) => ({ code: String(f.code).slice(0, 64), severity: (["high", "warn", "info"].includes(f.severity) ? f.severity : "warn") as Flag["severity"],
+        detail: String(f.detail ?? "").slice(0, 1000), source: "reviewer" as const, ...(f.provenance ? { provenance: f.provenance } : {}) }));
+    s.flags.push(...reviewerFlags);
+    s.dismissed_flags.push(...(o.dismissed_flags ?? []).filter((f) => f?.source === "reviewer"));
+    s.edited = !!o.edited;
   }
   for (const o of reviewed.steps) {
-    const touched = o.edited || o.reasoning_source === "reviewer" || (o.dismissed_flags ?? []).length || o.flags.some((f) => f.source === "reviewer");
+    const touched = o.edited || o.reasoning_source === "reviewer" || o.reasoning_original || (o.dismissed_flags ?? []).length
+      || (o.flags ?? []).some((f) => f?.source === "reviewer");
     if (touched && !kept.has(o)) dropped.push(`step ${stepKey(o)}: edits no longer match a step`);
+    if (kept.has(o)) {
+      const now = out.steps.find((s) => stepKey(s) === stepKey(o) || (!o.uid && timeKey(s) === timeKey(o)));
+      for (const f of o.dismissed_flags ?? []) {
+        if (f?.source !== "reviewer" && now && !now.dismissed_flags?.some((x) => x.code === f.code)) {
+          dropped.push(`step ${stepKey(o)}: dismissed "${f.code}" no longer raised`);
+        }
+      }
+    }
   }
-  out.review = structuredClone(reviewed.review);
+  out.review = structuredClone(reviewed.review ?? fresh.review);
   if (out.review.ai) {
     const valid = new Set(out.steps.map(stepKey));
     const gone = out.review.ai.step_assessments.filter((a) => !valid.has(a.uid));
     gone.forEach((a) => dropped.push(`AI assessment for ${a.uid}`));
     out.review.ai.step_assessments = out.review.ai.step_assessments.filter((a) => valid.has(a.uid));
   }
-  out.review.rebased = { at: nowIso(), from_hash: reviewed.review.base_hash ?? "unknown", dropped };
+  if (opts.record) {
+    const entry = { at: nowIso(), from_hash: reviewed.review?.base_hash ?? "unknown", dropped };
+    out.review.rebased = entry;
+    out.review.rebase_history = [...(out.review.rebase_history ?? []), entry].slice(-20);
+  }
   out.review.base_hash = freshHash;
   return out;
 }

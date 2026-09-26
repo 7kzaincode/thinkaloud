@@ -56,9 +56,19 @@ export function describe(step: Pick<Step, "action" | "target" | "description">):
       }
       return `${verb} at (${a.x}, ${a.y})`;
     }
+    case "drag": {
+      const verb = a.button === "right" ? "Right-dragged" : "Dragged";
+      const name = targetReliable(step) ? (step.target!.name ?? "").trim() : "";
+      if (name) {
+        const role = ROLE_WORDS[step.target!.role ?? ""] ?? step.target!.role ?? "element";
+        return `${verb} the ${name.slice(0, 80)} ${role} to (${a.x2}, ${a.y2})`;
+      }
+      return `${verb} from (${a.x}, ${a.y}) to (${a.x2}, ${a.y2})`;
+    }
     case "type":
       if (a.redacted) return "Typed text (redacted)";
       if (a.masked_chars && a.masked_chars === a.text.length) return `Typed ${a.masked_chars} characters into a password field (masked)`;
+      if (!a.text && a.keystrokes) return `Typed "${a.keystrokes.replaceAll("⌫", "")}" and deleted it again`;
       return `Typed "${a.text}"`;
     case "key":
       return `Pressed ${keyLabel(a.key)}${a.repeat && a.repeat > 1 ? ` ×${a.repeat}` : ""}`;

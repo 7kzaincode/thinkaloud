@@ -91,6 +91,17 @@ def test_description_uses_reliable_target_only():
         == "Scrolled down 5, then up 1"
 
 
+def test_description_of_drags_and_deleted_typing():
+    drag = {"type": "drag", "x": 10, "y": 20, "x2": 300, "y2": 40, "button": "left"}
+    assert describe({"action": drag}) == "Dragged from (10, 20) to (300, 40)"
+    ok = {"status": "ok", "role": "slider", "name": "Max price", "latency_ms": 30}
+    assert describe({"action": drag, "target": ok}) == "Dragged the Max price slider to (300, 40)"
+    assert describe({"action": {**drag, "button": "right"}}) == "Right-dragged from (10, 20) to (300, 40)"
+    typed = {"type": "type", "text": "", "backspaces": 2, "keystrokes": "ab⌫⌫"}
+    assert describe({"action": typed}) == 'Typed "ab" and deleted it again'
+    assert describe({"action": {"type": "key", "key": "backspace", "repeat": 3}}) == "Pressed Backspace ×3"
+
+
 # ---- end to end ---------------------------------------------------------------------
 @pytest.fixture
 def sample(tmp_path):
@@ -199,3 +210,17 @@ def test_playback_places_audio_on_recording_timeline(sample):
     beep = start + np.argmax(np.abs(samples) > 0.05) / a.rate
     assert abs(bright - 2.115) < 0.02          # frame captured at 2.1 (+15 ms midpoint): first after the click
     assert abs(beep - 2.0) < 0.07              # AAC priming/frame granularity tolerance
+
+
+def test_emails_and_tokens_in_urls_titles_are_flagged_and_redacted():
+    steps = [{"id": 0, "t_start": 1, "t_end": 1, "reasoning": "x", "flags": [],
+              "action": {"type": "click", "x": 1, "y": 1},
+              "target": {"status": "ok", "name": "Inbox - bob@example.com",
+                         "url": "https://mail.example/inbox?auth_token=abc123&tab=1"},
+              "context": {"window_title": "bob@example.com - Mail"}}]
+    qc.check_context(steps)
+    codes = {f["code"] for f in steps[0]["flags"]}
+    assert {"email_in_context", "sensitive_url"} <= codes
+    qc.redact(steps)
+    blob = json.dumps(steps[0])
+    assert "bob@example.com" not in blob and "abc123" not in blob

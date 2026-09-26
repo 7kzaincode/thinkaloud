@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { computeMetrics } from "./metrics.ts";
@@ -19,7 +19,7 @@ export const DATA_DIR = process.env.THINKALOUD_DATA
 const ORIGINAL = "trajectory.json";
 const REVIEWED = "trajectory.reviewed.json";
 const STATUS = "processing.json";
-export const SAFE_ID = /^[\w.-]+$/;
+export const SAFE_ID = /^(?!\.{1,2}$)[\w.-]+$/;
 
 async function exists(p: string) {
   return fs.access(p).then(() => true, () => false);
@@ -30,7 +30,7 @@ async function readJson<T>(p: string): Promise<T> {
 }
 
 async function writeJsonAtomic(p: string, data: unknown) {
-  const tmp = `${p}.${process.pid}.tmp`;
+  const tmp = `${p}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;  // unique per write
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf-8");
   await fs.rename(tmp, p);
 }
@@ -113,7 +113,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
       const processing = await processingStatus(dir);
       const summary: SessionSummary = {
         id: name, task: "", recorded_at: null, duration_s: null, processed: hasTraj, processing,
-        schema_version: null, legacy: false, metrics: null, reviewed: false, review_stale: false,
+        schema_version: null, legacy: false, metrics: null, reviewed: false,
         outcome: null, warnings: [],
       };
       try {
@@ -149,20 +149,26 @@ export async function getSession(id: string) {
   return effectiveTrajectory(dir);
 }
 
-export class ConflictError extends Error {}
-
-/** Reviews never overwrite the processor's trajectory.json. A review made against an
- *  older processor output is refused (409) so the reviewer reloads the rebased version. */
-export async function saveReview(id: string, t: Trajectory) {
+/**
+ * Save a review. The body comes from the browser, so it is never stored as-is: only
+ * review-owned fields (reasoning edits, flag decisions, checklist, AI suggestions and the
+ * decisions on them, outcome, notes) are taken from it and laid over the processor's
+ * trajectory.json. If the recording was reprocessed since the page loaded, the same merge
+ * rebases the reviewer's edits onto the new steps instead of rejecting them.
+ * Reviews never modify trajectory.json itself.
+ */
+export async function saveReview(id: string, incoming: Trajectory):
+    Promise<{ ok: false } | { ok: true; rebased: boolean; trajectory: Trajectory; base_hash: string }> {
   const dir = await sessionDir(id);
-  if (!dir) return false;
-  if (!Array.isArray(t?.steps) || t.session_id === undefined || typeof t.review !== "object") throw new Error("not a trajectory");
+  if (!dir) return { ok: false };
+  if (!Array.isArray(incoming?.steps) || !incoming.review || typeof incoming.review !== "object") throw new Error("not a trajectory");
   const orig = path.join(/*turbopackIgnore: true*/ dir, ORIGINAL);
   const current = await fileHash(orig);
-  if (t.review.base_hash && t.review.base_hash !== current) throw new ConflictError("the recording was reprocessed; reload to continue");
-  t.review.base_hash = current;
-  await writeJsonAtomic(path.join(/*turbopackIgnore: true*/ dir, REVIEWED), t);
-  return true;
+  const fresh = normalize(await readJson<Trajectory>(orig));
+  const sameBase = incoming.review.base_hash === current;
+  const merged = rebaseReview(fresh, incoming, current, { record: !sameBase });
+  await writeJsonAtomic(path.join(/*turbopackIgnore: true*/ dir, REVIEWED), merged);
+  return { ok: true, rebased: !sameBase, trajectory: merged, base_hash: current };
 }
 
 export async function discardReview(id: string) {

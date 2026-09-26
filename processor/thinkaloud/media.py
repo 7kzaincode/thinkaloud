@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .fsutil import replace_retry
+
 PLAYBACK = "playback.mp4"
 
 
@@ -51,7 +53,7 @@ def build_playback(session: Path, meta: dict, log=print) -> dict:
     for copy_video in (True, False):  # stream copy first; re-encode if the input won't remux
         try:
             _write(tmp, video if has_v else None, audio if has_a else None, offset, copy_video, info)
-            os.replace(tmp, out)
+            replace_retry(tmp, out)  # the viewer may be streaming the old file
             info["file"] = PLAYBACK
             info["bytes"] = out.stat().st_size
             info["video_mode"] = ("copy" if copy_video else "reencoded") if has_v else None

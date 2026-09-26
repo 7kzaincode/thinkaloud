@@ -72,6 +72,8 @@ RING_SIZE = 6                # frames kept in memory for "before" lookups
 STILL_QUEUE_MAX = 6          # PNG encodes waiting; bounds memory (~15 MB per 1440p frame)
 VIDEO_QUEUE_MAX = 8          # frames waiting for the encoder; overflow drops frames, not sync
 UIA_WAIT_S = 1.5             # how long the writer waits for a UI Automation answer
+UIA_WAIT_STOPPING_S = 0.2    # ... once stop was requested (don't hang the shutdown)
+DRAG_MIN_PX = 5              # press-to-release distance that makes a click a drag
 WHEEL_DELTA = 120
 WM_MOUSEWHEEL, WM_MOUSEHWHEEL = 0x020A, 0x020E
 LLMHF_INJECTED_ANY = 0x1 | 0x2
@@ -190,8 +192,11 @@ class StillWriter(threading.Thread):
 
     def _write_index(self, rec: dict) -> None:
         with self.lock:
-            self.index.write(json.dumps(rec) + "\n")
-            self.index.flush()
+            try:
+                self.index.write(json.dumps(rec) + "\n")
+                self.index.flush()
+            except (OSError, ValueError):  # disk full / closed: keep capturing, count it
+                self.failed += 1
 
     def run(self) -> None:
         while True:
@@ -317,6 +322,7 @@ class AudioCapture:
         self.stream = None
         self.thread = None
         self.started_t = None
+        self.padded_s = 0.0
 
     def start(self) -> bool:
         try:
@@ -324,7 +330,8 @@ class AudioCapture:
 
             def callback(indata, frames, time_info, status):
                 t_cb = self.clock()
-                self.q.put((indata.copy(), t_cb, bool(status.input_overflow)))
+                # paused is decided here, when the audio was captured, not when it is written
+                self.q.put((indata.copy(), t_cb, bool(status.input_overflow), bool(self.is_paused())))
 
             self.stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, device=self.device,
                                          dtype="int16", callback=callback)
@@ -351,9 +358,17 @@ class AudioCapture:
             item = self.q.get()
             if item is None:
                 break
-            data, t_cb, overflow = item
-            if self.is_paused():
+            data, t_cb, overflow, paused = item
+            if paused:
                 data = np.zeros_like(data)  # keep the sample clock, drop the content
+            if overflow and self.bound is not None:
+                # samples were lost before this chunk: pad with silence so later audio doesn't shift
+                lost = t_cb - (self.bound + (self.samples + len(data)) / SAMPLE_RATE) - self.latency
+                if lost > 0.02:
+                    pad = int(lost * SAMPLE_RATE)
+                    wav.writeframes(np.zeros(pad, np.int16).tobytes())
+                    self.samples += pad
+                    self.padded_s += pad / SAMPLE_RATE
             wav.writeframes(data.tobytes())
             self.samples += len(data)
             self.level = rms_level(data)
@@ -390,6 +405,7 @@ class AudioCapture:
                 "offset_method": "min callback bound minus reported input latency",
                 "reported_input_latency_s": round(self.latency, 4),
                 "clock_drift_ppm": drift_ppm, "overflows": self.overflows,
+                "overflow_padding_s": round(self.padded_s, 3),
                 "anchors": self.anchors[:: max(1, len(self.anchors) // 400)],
                 "error": self.error}
 
@@ -420,6 +436,10 @@ class Recorder:
         self.held: set[str] = set()
         self.shift = False
         self.burst_focus_rid: int | None = None
+        self.focus_may_have_moved = False  # set by Tab/Enter/shortcuts: re-check focus on the next key
+        self.mod_alone = None               # a modifier pressed with nothing else (e.g. Win opens Start)
+        self.pressed: dict[str, tuple[int, int]] = {}  # button -> press position (drag detection)
+        self.n_mask_unknown = 0
         self.n_events = 0
         self.n_masked = 0
         self.grab_errors = 0
@@ -486,10 +506,17 @@ class Recorder:
         with self.state_lock:
             candidate = (force_candidate or cls == "click" or cls != self.last_class
                          or t - self.last_input_t > CANDIDATE_GAP_S)
-            burst_start = cls == "key" and (cls != self.last_class or t - self.last_input_t > CANDIDATE_GAP_S)
-            self.last_class, self.last_input_t = cls, t
-            self.settle_pending = True
-        if candidate:
+            burst_start = cls == "key" and (cls != self.last_class or t - self.last_input_t > CANDIDATE_GAP_S
+                                            or self.focus_may_have_moved)
+            if cls == "key":
+                # Tab, Enter, arrows and shortcuts can move keyboard focus to another field
+                self.focus_may_have_moved = not ev.pop("_text", False)
+            if cls != "release":
+                self.last_class, self.last_input_t = cls, t
+                self.settle_pending = True
+        if cls in ("click", "key"):
+            ev["_fg"] = winctx.foreground_hwnd()  # at input time; described later by the writer
+        if candidate and cls != "release":
             ev["before_seq"] = self.stills.request(self.latest_frame_before(t), "before", t)
         if self.uia is not None:
             if cls == "click":
@@ -523,26 +550,34 @@ class Recorder:
                          "unit": "notch", "injected": bool(injected)}, "scroll")
 
     def on_click(self, x, y, button, pressed, injected=False):
-        if not pressed or not self._accept() or self.is_excluded(x, y):
+        self.mod_alone = None
+        if not pressed:
+            start = self.pressed.pop(button.name, None)
+            if (start and self._accept() and max(abs(x - start[0]), abs(y - start[1])) >= DRAG_MIN_PX):
+                self._input({"type": "release", "x": int(x), "y": int(y), "button": button.name,
+                             "injected": bool(injected)}, "release")
             return
+        if not self._accept() or self.is_excluded(x, y):
+            return
+        self.pressed[button.name] = (x, y)
         ev = {"type": "click", "x": int(x), "y": int(y), "button": button.name, "injected": bool(injected)}
         if self.held or self.shift:
             ev["mods"] = sorted(self.held | ({"shift"} if self.shift else set()))
         self._input(ev, "click")
 
     @staticmethod
-    def key_name(key) -> tuple[str, bool]:
-        """(name, printable). Printable keys are single characters."""
+    def key_name(key) -> tuple[str, str]:
+        """(name, kind) where kind is "char" (a typed character), "vk" (a letter/digit
+        recovered from the key code, e.g. Ctrl+C reports '\x03') or "special"."""
         if isinstance(key, keyboard.KeyCode):
             if key.char and key.char.isprintable():
-                return key.char, True
-            # With Ctrl held, Windows reports control chars (ctrl+c -> '\x03').
+                return key.char, "char"
             if key.vk is not None and 0x30 <= key.vk <= 0x5A:
-                return chr(key.vk).lower(), True
-            return (f"vk{key.vk}" if key.vk is not None else "?"), False
+                return chr(key.vk).lower(), "vk"
+            return (f"vk{key.vk}" if key.vk is not None else "?"), "special"
         if key == keyboard.Key.space:
-            return " ", True
-        return key.name, False
+            return " ", "char"
+        return key.name, "special"
 
     def on_press(self, key, injected=False):
         if key == STOP_KEY:
@@ -553,23 +588,36 @@ class Recorder:
             return
         if key in MODIFIERS:
             self.held.add(MODIFIERS[key])
+            self.mod_alone = key if self.mod_alone is None and len(self.held) == 1 and not self.shift else False
             return
         if key in SHIFTS:
             self.shift = True
             return  # shift is reflected in the character, or added to special keys below
+        self.mod_alone = False
         if not self._accept():
             return
-        name, printable = self.key_name(key)
-        ev = {"type": "key", "key": name, "injected": bool(injected)}
+        name, kind = self.key_name(key)
         mods = set(self.held)
-        if self.shift and not printable:
-            mods.add("shift")
+        altgr = kind == "char" and {"ctrl", "alt"} <= mods  # AltGr = Ctrl+Alt on Windows: it typed a character
+        if altgr:
+            mods = set()
+        elif self.shift and (kind != "char" or mods):
+            mods.add("shift")  # Ctrl+Shift+T is not Ctrl+T; plain Shift is already in the character
+        ev = {"type": "key", "key": name, "injected": bool(injected)}
         if mods:
             ev["mods"] = sorted(mods)
+        if altgr:
+            ev["altgr"] = True
+        ev["_text"] = not mods and (len(name) == 1 or name == "backspace")
         self._input(ev, "key", force_candidate=bool(mods) or name in ("enter", "tab"))
 
     def on_release(self, key, injected=False):
         if key in MODIFIERS:
+            if self.mod_alone == key and MODIFIERS[key] in ("cmd", "alt") and self._accept():
+                # Win or Alt pressed and released on its own (opens Start / the menu bar)
+                self._input({"type": "key", "key": MODIFIERS[key], "injected": bool(injected)}, "key",
+                            force_candidate=True)
+            self.mod_alone = None
             self.held.discard(MODIFIERS[key])
         elif key in SHIFTS:
             self.shift = False
@@ -588,39 +636,48 @@ class Recorder:
                 ev["seq"] = seq
                 seq += 1
                 kind = ev["type"]
-                if kind in ("click", "key"):
-                    win = winctx.foreground_window()
+                fg = ev.pop("_fg", None)
+                if kind in ("click", "key", "release"):
+                    win = winctx.describe_hwnd(fg) if fg else winctx.foreground_window()
                 elif kind == "scroll":
                     win = winctx.window_at(ev["x"], ev["y"])
                 else:
                     win = None
                 if win:
                     ev["window"] = win
+                wait = UIA_WAIT_STOPPING_S if self.stop_event.is_set() else UIA_WAIT_S
                 rid = ev.pop("_uia", None)
                 if rid is not None:
-                    ev["target"] = self.uia.result(rid, UIA_WAIT_S)
+                    ev["target"] = self.uia.result(rid, wait)
                     password_field = bool(ev["target"].get("is_password"))
                 frid = ev.pop("_focus", None)
                 if kind == "key":
                     focus = None
                     if frid is not None:
                         if frid not in focus_cache:
-                            focus_cache[frid] = self.uia.result(frid, UIA_WAIT_S)
+                            focus_cache[frid] = self.uia.result(frid, wait)
                             if len(focus_cache) > 64:
                                 focus_cache.pop(next(iter(focus_cache)))
                         focus = focus_cache[frid]
+                    reason = None
                     if focus and focus.get("status") == "ok":
-                        is_pw = bool(focus.get("is_password"))
                         ev["focus"] = {k: focus.get(k) for k in ("role", "name", "is_password", "status")}
-                    else:
-                        is_pw = password_field
-                        if focus:
-                            ev["focus"] = {"status": focus.get("status")}
-                    if is_pw and len(ev["key"]) == 1:
+                        if focus.get("is_password"):
+                            reason = "password field (UI Automation IsPassword)"
+                    elif focus is not None:
+                        # UI Automation is running but couldn't say where focus is: fail closed
+                        ev["focus"] = {"status": focus.get("status")}
+                        reason = "focused field could not be checked"
+                    elif password_field:
+                        reason = "typed after clicking a password field"
+                    if reason and len(ev["key"]) == 1:
                         ev["key"] = "•"
                         ev["masked"] = True
-                        ev["mask_reason"] = "password field (UI Automation IsPassword)"
+                        ev["mask_reason"] = reason
                         self.n_masked += 1
+                        if reason == "focused field could not be checked":
+                            self.n_mask_unknown += 1
+                ev.pop("_text", None)
                 events.write(json.dumps(ev) + "\n")
                 events.flush()
                 self.n_events += 1
@@ -742,11 +799,12 @@ class Recorder:
         writer.join(timeout=30)
         if self.uia is not None:
             self.uia.stop()
-        if self.video is not None:
-            self.video.q.put(None)
-            self.video.join(timeout=60)
-        self.stills.q.put(None)
-        self.stills.join(timeout=60)
+        for worker in (w for w in (self.video, self.stills) if w is not None):
+            try:
+                worker.q.put(None, timeout=20)
+            except queue.Full:
+                self.errors.append(f"{worker.name}: worker did not drain its queue before stop")
+            worker.join(timeout=60)
         if self.audio is not None:
             self.audio.stop()
 
@@ -772,7 +830,8 @@ class Recorder:
             },
             "capture": {"fps": self.fps, "frames": self.frames_captured, "grab_errors": self.grab_errors,
                         "settle_s": self.settle_s, "candidate_gap_s": CANDIDATE_GAP_S,
-                        "ring_size": RING_SIZE, "double_click_time_s": winctx.double_click_time_s()},
+                        "ring_size": RING_SIZE, "double_click_time_s": winctx.double_click_time_s(),
+                        "double_click_size_px": winctx.double_click_size_px(), "drag_min_px": DRAG_MIN_PX},
             "stills": {"index": "frames/stills.jsonl", "saved": self.stills.saved,
                        "failed": self.stills.failed, "dropped": self.stills.dropped},
             "video": ({"file": "screen.mkv" if self.video.frames else None, "codec": self.video.codec,
@@ -784,7 +843,8 @@ class Recorder:
             "uia": {"enabled": self.uia is not None,
                     "available": getattr(self.uia, "available", None),
                     "error": getattr(self.uia, "error", None)},
-            "input": {"events": self.n_events, "masked_keys": self.n_masked, "pauses": self.pauses,
+            "input": {"events": self.n_events, "masked_keys": self.n_masked,
+                      "masked_focus_unknown": self.n_mask_unknown, "pauses": self.pauses,
                       "hotkeys": {"stop": "F9", "pause": "F8"}},
             "errors": self.errors,
             "platform": platform.platform(),

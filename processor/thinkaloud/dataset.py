@@ -44,7 +44,8 @@ class ValidationError(Exception):
 DATASET_FORMAT = "thinkaloud.dataset/1.0"
 CLAUDE_FORMAT = "thinkaloud.claude_computer_use/1.0"
 CLAUDE_TOOL_TYPE = "computer_toolset_20260801"
-ACTIONS = {"click", "type", "key", "scroll"}
+ACTIONS = {"click", "drag", "type", "key", "scroll"}
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
 BEFORE_STATUS = {"ok", "predates_previous_action", "stale", "missing", "at_action", "legacy_earlier_action"}
 AFTER_STATUS = {"settled", "unsettled", "missing"}
 TIMING = {"before_action", "during_action", "after_action", None}
@@ -94,6 +95,18 @@ def _sha(p: Path) -> str:
     return h.hexdigest()
 
 
+def png_size(p: Path):
+    """(width, height) from the PNG header, or None if the file isn't a PNG."""
+    try:
+        with open(p, "rb") as f:
+            head = f.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != PNG_SIG or head[12:16] != b"IHDR":
+        return None
+    return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
+
+
 def _num(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
@@ -128,6 +141,8 @@ def validate_record(rec: dict, base: Path, listed: set[str], rec_prefix: str) ->
             err(f"{where}: image {img} is not in the manifest")
         elif not (base / rel).exists():
             err(f"{where}: image {img} is missing")
+        elif png_size(base / rel) is None:
+            err(f"{where}: {img} is not a PNG image")
 
     steps = rec.get("steps")
     if not isinstance(steps, list):
@@ -154,6 +169,8 @@ def validate_record(rec: dict, base: Path, listed: set[str], rec_prefix: str) ->
         at = a.get("type")
         if at not in ACTIONS:
             err(f"{w}: unknown action type {at!r}")
+        elif at == "drag" and not all(_num(a.get(k)) for k in ("x", "y", "x2", "y2")):
+            err(f"{w}: drag needs x, y, x2, y2")
         elif at in ("click", "scroll"):
             if not (_num(a.get("x")) and _num(a.get("y"))):
                 err(f"{w}: {at} needs x and y")
@@ -263,6 +280,12 @@ def validate_tool_input(name: str, inp: dict, size) -> list[str]:
             P.append("repeat must be 1-100")
     if name == "mouse_move" and not _coord_ok(inp.get("coordinate"), size):
         P.append("mouse_move needs a coordinate inside the screenshot")
+    if name == "left_click_drag":
+        for k in ("start_coordinate", "coordinate"):
+            if not _coord_ok(inp.get(k), size):
+                P.append(f"left_click_drag {k} missing or outside the screenshot")
+        if "text" in inp and not all(m in MODS for m in str(inp["text"]).split("+")):
+            P.append(f"modifier text {inp['text']!r} invalid")
     return P
 
 
@@ -293,6 +316,10 @@ def validate_claude(c: dict, base: Path, listed: set[str]) -> tuple[list[str], l
             p = src.get("path")
             if p not in listed or not (base / p).exists():
                 err(f"{where}: image {p} missing from bundle")
+            elif png_size(base / p) is None:
+                err(f"{where}: {p} is not a PNG image")
+            elif list(png_size(base / p)) != list(size):
+                err(f"{where}: {p} is {png_size(base / p)}, not the declared screenshot size {size}")
         elif src.get("type") != "base64":
             err(f"{where}: unsupported image source {src.get('type')!r}")
 
@@ -390,8 +417,20 @@ def validate_bundle(path) -> dict:
 
 
 class Bundle:
-    def __init__(self, path: Path, manifest: dict):
-        self.path, self.manifest = path, manifest
+    def __init__(self, path: Path, manifest: dict, tmp=None):
+        self.path, self.manifest, self._tmp = path, manifest, tmp
+
+    def close(self) -> None:
+        """Delete the temporary copy made when a .zip was opened."""
+        if self._tmp is not None:
+            self._tmp.cleanup()
+            self._tmp = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     def recordings(self):
         for r in self.manifest["recordings"]:
@@ -419,17 +458,27 @@ def materialize_claude_messages(base: Path, c: dict) -> list[dict]:
 
 
 def load_bundle(path, strict: bool = True) -> Bundle:
+    """Open (and validate) a bundle folder or .zip. For a .zip the contents are extracted to a
+    temporary folder that Bundle.close() / `with load_bundle(...)` removes."""
     p = Path(path)
+    tmpdir = None
     if p.suffix == ".zip":
-        tmp = Path(tempfile.mkdtemp(prefix="thinkaloud-"))
+        tmpdir = tempfile.TemporaryDirectory(prefix="thinkaloud-")
+        tmp = Path(tmpdir.name)
         with zipfile.ZipFile(p) as z:
+            for n in z.namelist():  # refuse zip-slip paths
+                if n.startswith(("/", "\\")) or ".." in Path(n).parts:
+                    tmpdir.cleanup()
+                    raise ValueError(f"unsafe path in zip: {n}")
             z.extractall(tmp)
         subs = [d for d in tmp.iterdir() if d.is_dir()]
         p = subs[0] if len(subs) == 1 and not (tmp / "manifest.json").exists() else tmp
     report = validate_bundle(p)
     if strict and not report["ok"]:
+        if tmpdir:
+            tmpdir.cleanup()
         raise ValidationError(report)
-    return Bundle(p, json.loads((p / "manifest.json").read_text(encoding="utf-8")))
+    return Bundle(p, json.loads((p / "manifest.json").read_text(encoding="utf-8")), tmpdir)
 
 
 def main(argv=None) -> int:
@@ -440,8 +489,8 @@ def main(argv=None) -> int:
         print(__doc__)
         return 2
     try:
-        b = load_bundle(args[0], strict=False)
-        report = validate_bundle(b.path)
+        with load_bundle(args[0], strict=False) as b:
+            report = validate_bundle(b.path)
     except Exception as e:
         report = {"ok": False, "errors": [f"could not open bundle: {e}"], "warnings": [], "recordings": 0}
     if as_json:

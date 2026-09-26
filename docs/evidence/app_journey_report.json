@@ -1,0 +1,92 @@
+{
+  "at": "2026-09-26T05:16:27.602Z",
+  "checks": [
+    {
+      "name": "record form: microphones listed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "record form: start enabled",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "app shows the recording state",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "guarded inputs performed in the test window",
+      "ok": true,
+      "detail": "inputs done"
+    },
+    {
+      "name": "stopping processes the recording and opens the review",
+      "ok": true,
+      "detail": "2026-09-26T01-15-47"
+    },
+    {
+      "name": "review page shows the task",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "before image loads",
+      "ok": true,
+      "detail": "Clicked the Testbench Store document"
+    },
+    {
+      "name": "after view renders an image or an explicit reason",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "step described from UI Automation in the app",
+      "ok": false,
+      "detail": "Clicked the Testbench Store document | Clicked the Testbench Store document | Clicked the Search field | Typed \"noise cancelling headphones\" | Pressed Enter | Clicked the Password field | Typed 14 characters into a password field (masked) | Scrolled down 8, then up 3 | Clicked the Flash button | Cli"
+    },
+    {
+      "name": "replay plays",
+      "ok": true,
+      "detail": "{\"t\":25.489,\"ready\":4,\"dur\":25.489}"
+    },
+    {
+      "name": "timeline shows the replay position",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "review autosaves",
+      "ok": true,
+      "detail": "Review saved 01:16 AM"
+    },
+    {
+      "name": "export succeeds and the bundle validates",
+      "ok": true,
+      "detail": "{\"ok\":true,\"v\":true,\"errors\":[],\"problems\":[\"2026-09-26T01-15-47 (claude): step s000033: password characters were masked at capture; the typed text is unknown, so this action is omitted\"]}"
+    },
+    {
+      "name": "export downloads as a zip",
+      "ok": true,
+      "detail": "{\"status\":200,\"type\":\"application/zip\",\"bytes\":10712113}"
+    },
+    {
+      "name": "downloaded bundle validates independently",
+      "ok": true,
+      "detail": "{\"ok\": true, \"errors\": [], \"warnings\": [], \"recordings\": 1}"
+    },
+    {
+      "name": "outcome persists across reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "recordings page shows the processed, reviewed recording",
+      "ok": true,
+      "detail": "{\"status\":\"processed\",\"steps\":\"11\",\"review\":\"Task done1/1 items met\"}"
+    }
+  ],
+  "passed": 16,
+  "total": 17
+}

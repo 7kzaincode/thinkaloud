@@ -44,6 +44,8 @@ export default function StepPanel({ t, index, step, edit, onJump, aiStatus }: {
             {"x" in step.action && <><dt>frame x, y</dt><dd>{step.action.x}, {step.action.y}</dd></>}
             {"screen_x" in step.action && step.action.screen_x !== undefined && <><dt>screen x, y</dt><dd>{step.action.screen_x}, {step.action.screen_y}</dd></>}
             {step.action.type === "click" && <><dt>button</dt><dd>{step.action.button}{step.action.count ? ` ×${step.action.count}` : ""}</dd></>}
+            {step.action.type === "drag" && <><dt>drag to</dt><dd>{step.action.x2}, {step.action.y2} ({step.action.button})</dd></>}
+            {step.action.type === "type" && step.action.keystrokes && <><dt>keystrokes</dt><dd>{step.action.keystrokes}</dd></>}
             {tgt ? (
               <>
                 <dt>target</dt><dd>{tgt.status}{tgt.status === "ok" && !targetReliable(step) ? " (lookup too late to trust)" : ""}{tgt.latency_ms != null ? ` · ${tgt.latency_ms} ms` : ""}</dd>
@@ -54,7 +56,7 @@ export default function StepPanel({ t, index, step, edit, onJump, aiStatus }: {
                 <dt>url</dt><dd>{tgt.url ?? `none (${tgt.url_status ?? "not looked up"})`}</dd>
                 {tgt.error && <><dt>error</dt><dd>{tgt.error}</dd></>}
               </>
-            ) : step.action.type === "click" && <><dt>target</dt><dd>not recorded</dd></>}
+            ) : (step.action.type === "click" || step.action.type === "drag") && <><dt>target</dt><dd>not recorded</dd></>}
             <dt>step uid</dt><dd>{step.uid ?? "—"}</dd>
           </dl>
         </details>
@@ -65,13 +67,13 @@ export default function StepPanel({ t, index, step, edit, onJump, aiStatus }: {
           <span className="eyebrow">Why</span>
           <span className="src">
             {step.reasoning_source === "narrated" && "from narration"}
-            {step.reasoning_source === "reviewer" && (
-              <>edited by reviewer{step.reasoning_original && <> · <button onClick={() => edit((d) => R.revertReasoning(d, index))}>revert</button></>}</>
-            )}
+            {step.reasoning_source === "reviewer" && "edited by reviewer"}
+            {step.reasoning_original && step.reasoning_source !== "reviewer" && "cleared by reviewer"}
+            {step.reasoning_original && <> · <button onClick={() => edit((d) => R.revertReasoning(d, index))}>revert</button></>}
             {step.reasoning_source === "carried" && step.carried_from !== null && (
               <>carried from <button onClick={() => onJump(step.carried_from!)}>#{step.carried_from}</button></>
             )}
-            {!step.reasoning_source && "none"}
+            {!step.reasoning_source && !step.reasoning_original && "none"}
           </span>
         </div>
         <textarea

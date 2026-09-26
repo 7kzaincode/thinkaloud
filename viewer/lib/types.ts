@@ -14,7 +14,11 @@ export interface ScrollRun { direction: "up" | "down" | "left" | "right" | "none
 
 export type Action =
   | { type: "click"; x: number; y: number; button: string; count?: number; mods?: string[]; screen_x?: number; screen_y?: number }
-  | { type: "type"; text: string; redacted?: boolean; masked_chars?: number; backspaces?: number }
+  | {
+      type: "drag"; x: number; y: number; x2: number; y2: number; button: string; mods?: string[];
+      screen_x?: number; screen_y?: number; screen_x2?: number; screen_y2?: number;
+    }
+  | { type: "type"; text: string; redacted?: boolean; masked_chars?: number; backspaces?: number; keystrokes?: string }
   | { type: "key"; key: string; repeat?: number }
   | {
       type: "scroll"; x: number; y: number; unit?: string; mods?: string[];
@@ -112,6 +116,7 @@ export interface AiRun {
   at: string;
   model: string;
   status: "ok" | "error";
+  note?: string;
   error?: string;
   error_type?: string;
 }
@@ -135,6 +140,10 @@ export interface ChecklistItem {
   /** set only by a human */
   human_verdict: "met" | "not_met" | "unclear" | null;
   human_verdict_source?: "reviewer" | "accepted_ai_suggestion";
+  /** the AI check a human adopted as their verdict (provenance) */
+  accepted_from?: { run_id: string; verdict: "supported" | "contradicted" | "unknown"; input_hash: string };
+  /** the item text at the time the verdict was given */
+  verdict_text?: string;
   ai_check?: {
     run_id: string;
     verdict: "supported" | "contradicted" | "unknown";
@@ -159,6 +168,7 @@ export interface Review {
   /** hash of the processor's trajectory.json this review was made against */
   base_hash?: string;
   rebased?: { at: string; from_hash: string; dropped: string[] };
+  rebase_history?: { at: string; from_hash: string; dropped: string[] }[];
   checklist?: ChecklistItem[];
   ai?: {
     runs: AiRun[];
@@ -208,7 +218,6 @@ export interface SessionSummary {
   legacy: boolean;
   metrics: import("./metrics").SessionMetrics | null;
   reviewed: boolean;
-  review_stale: boolean;
   outcome: "pass" | "fail" | null;
   warnings: string[];
   error?: string;

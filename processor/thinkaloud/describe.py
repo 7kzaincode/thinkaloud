@@ -47,11 +47,20 @@ def describe(step: dict) -> str:
             if role not in ("pane", "custom", "group", "document", "window", "unknown"):
                 return f"{verb} a {role} at ({a['x']}, {a['y']})"
         return f"{verb} at ({a['x']}, {a['y']})"
+    if t == "drag":
+        verb = "Right-dragged" if a.get("button") == "right" else "Dragged"
+        tgt = step.get("target")
+        if target_reliable(tgt) and (tgt.get("name") or "").strip():
+            role = ROLE_WORDS.get(tgt.get("role") or "", tgt.get("role") or "element")
+            return f"{verb} the {tgt['name'].strip()[:80]} {role} to ({a['x2']}, {a['y2']})"
+        return f"{verb} from ({a['x']}, {a['y']}) to ({a['x2']}, {a['y2']})"
     if t == "type":
         if a.get("redacted"):
             return "Typed text (redacted)"
         if a.get("masked_chars") and a["masked_chars"] == len(a["text"]):
             return f"Typed {a['masked_chars']} characters into a password field (masked)"
+        if not a["text"] and a.get("keystrokes"):
+            return f'Typed "{a["keystrokes"].replace("⌫", "")}" and deleted it again'
         return f'Typed "{a["text"]}"'
     if t == "key":
         n = a.get("repeat", 1)

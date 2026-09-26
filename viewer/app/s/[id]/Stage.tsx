@@ -26,7 +26,7 @@ const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, 
     : t.final_observation;
   const W = t.screen.w || 1, H = t.screen.h || 1;
   const a = step?.action;
-  const showMarker = step && view === "before" && a && (a.type === "click" || a.type === "scroll");
+  const showMarker = step && view === "before" && a && (a.type === "click" || a.type === "scroll" || a.type === "drag");
   const rect = step && view === "before" && targetReliable(step) ? step.target?.frame_rect : null;
 
   return (
@@ -72,6 +72,14 @@ const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, 
           {obs?.file && showMarker && (
             <div className={`marker ${a!.type === "scroll" ? "scroll" : ""}`}
               style={{ left: `${((a as { x: number }).x / W) * 100}%`, top: `${((a as { y: number }).y / H) * 100}%` }} />
+          )}
+          {obs?.file && showMarker && a!.type === "drag" && (
+            <>
+              <svg className="drag-path" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+                <line x1={a.x} y1={a.y} x2={a.x2} y2={a.y2} />
+              </svg>
+              <div className="marker end" style={{ left: `${(a.x2 / W) * 100}%`, top: `${(a.y2 / H) * 100}%` }} />
+            </>
           )}
         </div>
       </div>

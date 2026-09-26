@@ -63,13 +63,31 @@ export function runEngine(args: string[], input?: unknown, timeoutMs = 180_000):
   });
 }
 
-/** Start a long-running engine command without waiting (batch processing). */
-export function startEngine(args: string[]): number | undefined {
+/**
+ * Start a long-running engine command (batch processing). Waits briefly so an immediate
+ * failure (engine missing, bad arguments, no recordings found) is reported instead of
+ * silently looking like a started job.
+ */
+export function startEngine(args: string[], settleMs = 2500): Promise<{ pid: number } | { error: string }> {
   const [cmd, base] = engineCommand();
-  const child = spawn(cmd, [...base, ...args], {
-    windowsHide: true, detached: false, stdio: "ignore",
-    env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+  return new Promise((resolve) => {
+    let out = "";
+    let done = false;
+    const child = spawn(cmd, [...base, ...args], {
+      windowsHide: true, detached: false, stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+    });
+    const collect = (d: Buffer) => { out = (out + d).slice(-2000); };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    const finish = (r: { pid: number } | { error: string }) => { if (!done) { done = true; resolve(r); } };
+    child.on("error", (e) => finish({ error: `could not start the engine: ${e.message}` }));
+    child.on("exit", (code) => {
+      if (code !== 0) {
+        const last = out.trim().split(/\r?\n/).reverse().find((l) => l.includes("error")) ?? out.trim().split(/\r?\n/).pop();
+        finish({ error: `engine exited (${code}): ${last ?? ""}`.slice(0, 400) });
+      }
+    });
+    setTimeout(() => finish({ pid: child.pid ?? 0 }), settleMs);
   });
-  child.unref();
-  return child.pid;
 }

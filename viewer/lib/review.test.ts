@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { fnv1a, narrationInput } from "./hash.ts";
+import { finalCheckInput, fnv1a, narrationInput } from "./hash.ts";
 import { computeMetrics } from "./metrics.ts";
 import * as R from "./review.ts";
 import type { Trajectory } from "./types.ts";
@@ -147,4 +147,90 @@ test("rebase carries edits from a schema 0.1 review (no uids) by start time and 
   assert.ok(merged.steps[3].flags.some((f) => f.source === "reviewer" && f.detail === "check this"));
   assert.equal(merged.review.rebased!.dropped.length, 0);
   assert.equal(merged.review.outcome, "pass");
+});
+
+test("undo after an AI re-run removes the flag the earlier run created", () => {
+  const t = fresh();
+  const s = t.steps[0];
+  const a = { uid: s.uid!, verdict: "filler" as const, explanation: "just 'okay'", input_hash: narrationInput(s) };
+  R.applyAiResult(t, { run: aiRun("narration", "run-1"), assessments: [a] });
+  R.decideAssessment(t, s.uid!, "accepted");
+  R.applyAiResult(t, { run: aiRun("narration", "run-2"), assessments: [a] });
+  const cur = t.review.ai!.step_assessments.find((x) => x.uid === s.uid)!;
+  assert.equal(cur.run_id, "run-2");
+  assert.equal(cur.decision, "accepted", "same verdict on the same input keeps the human decision");
+  R.decideAssessment(t, s.uid!, null);
+  assert.ok(!t.steps[0].flags.some((f) => f.provenance), "the run-1 flag is removed by undo on run-2");
+  // accepting again yields exactly one provenance flag
+  R.decideAssessment(t, s.uid!, "accepted");
+  R.decideAssessment(t, s.uid!, "accepted");
+  assert.equal(t.steps[0].flags.filter((f) => f.provenance).length, 1);
+});
+
+test("a re-run never changes an accepted verdict; only a different verdict offers to adopt it", () => {
+  const t = fresh();
+  const id = R.addChecklistItem(t, "Nonstop");
+  const item = () => t.review.checklist!.find((c) => c.id === id)!;
+  const h = finalCheckInput("Nonstop", t.success_criteria, t.final_observation?.file ?? t.final_screenshot);
+  R.applyAiResult(t, { run: aiRun("final_screen", "run-1"), checks: [{ item_id: id, verdict: "supported", evidence: "e", input_hash: h }] });
+  assert.equal(R.aiCheckDiffers(item()), true);
+  R.acceptAiCheck(t, id);
+  assert.equal(R.aiCheckDiffers(item()), false);
+  R.applyAiResult(t, { run: aiRun("final_screen", "run-2"), checks: [{ item_id: id, verdict: "supported", evidence: "e2", input_hash: h }] });
+  assert.equal(R.aiCheckDiffers(item()), false, "same verdict again: nothing to adopt");
+  R.applyAiResult(t, { run: aiRun("final_screen", "run-3"), checks: [{ item_id: id, verdict: "contradicted", evidence: "1 stop", input_hash: h }] });
+  assert.equal(item().human_verdict, "met", "the human verdict is not overwritten by a later run");
+  assert.equal(item().accepted_from!.run_id, "run-1");
+  assert.equal(R.aiCheckDiffers(item()), true);
+  // rewording the item after deciding flags the verdict as given for other wording
+  R.editChecklistItem(t, id, "Nonstop and under $400");
+  assert.equal(R.verdictOutdated(item()), true);
+  R.setItemVerdict(t, id, "not_met");
+  assert.equal(R.verdictOutdated(item()), false);
+  assert.equal(item().accepted_from, undefined);
+});
+
+test("clearing the reasoning is a reviewer edit that can be reverted", () => {
+  const t = fresh();
+  const i = t.steps.findIndex((s) => s.reasoning_source === "narrated");
+  const said = t.steps[i].reasoning;
+  R.setReasoning(t, i, "");
+  assert.equal(t.steps[i].reasoning, "");
+  assert.equal(t.steps[i].reasoning_source, null);
+  assert.equal(t.steps[i].reasoning_original!.text, said);
+  R.revertReasoning(t, i);
+  assert.equal(t.steps[i].reasoning, said);
+  assert.equal(t.steps[i].reasoning_source, "narrated");
+  // on a step that had no reasoning: write one, then clear it -> missing_reasoning is back
+  const j = t.steps.findIndex((s) => s.flags.some((f) => f.code === "missing_reasoning"));
+  R.setReasoning(t, j, "why");
+  assert.ok(!t.steps[j].flags.some((f) => f.code === "missing_reasoning"));
+  R.setReasoning(t, j, "  ");
+  assert.equal(t.steps[j].flags.filter((f) => f.code === "missing_reasoning").length, 1);
+  assert.ok(!t.steps[j].dismissed_flags!.some((f) => f.code === "missing_reasoning"));
+});
+
+test("rebase keeps a dismissal when only the flag's detail text changed", () => {
+  const reviewed = fresh();
+  const i = reviewed.steps.findIndex((s) => s.flags.some((f) => f.code === "idle_gap"));
+  R.dismissFlag(reviewed, i, reviewed.steps[i].flags.findIndex((f) => f.code === "idle_gap"));
+  const next = fresh();
+  next.steps[i].flags.find((f) => f.code === "idle_gap")!.detail = "24.1s with no actions before this step";
+  const merged = R.rebaseReview(next, reviewed, "new");
+  assert.ok(!merged.steps[i].flags.some((f) => f.code === "idle_gap"));
+  assert.equal(merged.steps[i].dismissed_flags!.find((f) => f.code === "idle_gap")!.detail, "24.1s with no actions before this step");
+  assert.deepEqual(merged.review.rebased!.dropped, []);
+});
+
+test("rebase carries a cleared reasoning and a save-time rebase is not recorded", () => {
+  const reviewed = fresh();
+  const i = reviewed.steps.findIndex((s) => s.reasoning_source === "narrated");
+  R.setReasoning(reviewed, i, "");
+  const merged = R.rebaseReview(fresh(), reviewed, "new");
+  assert.equal(merged.steps[i].reasoning, "");
+  assert.equal(merged.steps[i].reasoning_source, null);
+  assert.equal(merged.steps[i].reasoning_original!.text, fresh().steps[i].reasoning);
+  const quiet = R.rebaseReview(fresh(), reviewed, "same", { record: false });
+  assert.equal(quiet.review.rebased, undefined);
+  assert.equal(quiet.review.base_hash, "same");
 });
