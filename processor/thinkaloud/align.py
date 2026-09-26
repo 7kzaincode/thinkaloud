@@ -17,11 +17,19 @@ narration of its own inherits the previous step's reasoning when it starts
 within CARRY_GAP seconds of that step ending. Such steps get
 reasoning_source="carried" and carried_from=<step id>; QC only flags steps
 that have neither their own nor carried reasoning.
+
+Timing: every narration segment attached to a step records how it relates to the
+action in time, so an intention stated beforehand can be told apart from a
+comment made afterwards:
+    before_action   segment ended by the time the step started (+TIMING_SLACK)
+    after_action    segment started after the step ended
+    during_action   anything else (overlaps the action)
 """
 from __future__ import annotations
 
 LOOKAHEAD = 4.0
 CARRY_GAP = 6.0
+TIMING_SLACK = 0.25
 
 
 def assign(segment: dict, steps: list[dict], lookahead: float = LOOKAHEAD) -> int | None:
@@ -31,6 +39,14 @@ def assign(segment: dict, steps: list[dict], lookahead: float = LOOKAHEAD) -> in
             return s["id"]
     before = [s for s in steps if s["t_start"] <= segment["t_end"]]
     return before[-1]["id"] if before else None
+
+
+def timing(segment: dict, step: dict) -> str:
+    if segment["t_end"] <= step["t_start"] + TIMING_SLACK:
+        return "before_action"
+    if segment["t_start"] >= step["t_end"]:
+        return "after_action"
+    return "during_action"
 
 
 def align(segments: list[dict], steps: list[dict], lookahead: float = LOOKAHEAD,
@@ -43,6 +59,7 @@ def align(segments: list[dict], steps: list[dict], lookahead: float = LOOKAHEAD,
         s["transcript_ids"] = []
         s["reasoning_source"] = None
         s["carried_from"] = None
+        s["narration"] = []
     for seg in sorted(segments, key=lambda g: g["t_start"]):
         sid = assign(seg, steps, lookahead)
         seg["step_id"] = sid
@@ -50,6 +67,9 @@ def align(segments: list[dict], steps: list[dict], lookahead: float = LOOKAHEAD,
             continue
         step = by_id[sid]
         step["transcript_ids"].append(seg["id"])
+        seg["timing"] = timing(seg, step)
+        step["narration"].append({"segment_id": seg["id"], "t_start": seg["t_start"],
+                                  "t_end": seg["t_end"], "timing": seg["timing"]})
         text = seg["text"].strip()
         step["reasoning"] = f"{step['reasoning']} {text}".strip() if step["reasoning"] else text
 

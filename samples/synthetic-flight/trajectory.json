@@ -1,37 +1,166 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "session_id": "synthetic-flight",
   "task": "Find and select the cheapest nonstop flight from Toronto (YYZ) to San Francisco (SFO) on Oct 17.",
   "success_criteria": "Checkout page shows the cheapest nonstop YYZ-SFO flight on Oct 17.",
   "recorded_at": "2026-09-26T10:00:00-04:00",
   "duration_s": 71.5,
+  "source": {
+    "session_schema": "thinkaloud.session/0.2",
+    "recorder_version": "synthetic-0.2",
+    "legacy": false,
+    "segmentation": {
+      "type_gap_s": 2.0,
+      "scroll_pause_s": 5.0,
+      "repeat_gap_s": 1.0,
+      "double_click_s": 0.5
+    }
+  },
   "screen": {
     "w": 1600,
     "h": 900
   },
-  "final_screenshot": "frames/000071500.png",
+  "coordinate_space": {
+    "frame_size": [
+      1600,
+      900
+    ],
+    "frame_origin_on_screen": [
+      0,
+      0
+    ],
+    "monitor_dpi_scale": 1.0,
+    "units": "physical pixels; action x/y and target rects are relative to the frame"
+  },
+  "timeline": {
+    "clock": "recorder perf_counter",
+    "unit": "s",
+    "origin": "recording start",
+    "audio_offset_s": 0.0,
+    "pauses": []
+  },
+  "media": {
+    "file": "playback.mp4",
+    "timeline": "media time = recording time (s)",
+    "video": true,
+    "audio": true,
+    "audio_offset_s": 0.0,
+    "audio_clock_drift_ppm": 0.0,
+    "video_frames": 287,
+    "video_dropped": 0,
+    "status": "ok",
+    "error": null,
+    "audio_max_drift_ms": 0.0,
+    "video_first_pts_s": 0.115,
+    "audio_duration_s": 72.5,
+    "bytes": 1225232,
+    "video_mode": "copy"
+  },
+  "final_screenshot": "frames/f000286.png",
+  "final_observation": {
+    "status": "ok",
+    "file": "frames/f000286.png",
+    "source": "still",
+    "capture_seq": 286,
+    "t_capture_start": 71.52,
+    "t_capture_end": 71.55
+  },
   "steps": [
     {
       "id": 0,
+      "uid": "s000001",
       "t_start": 4.1,
       "t_end": 4.1,
       "action": {
         "type": "click",
         "x": 290,
         "y": 293,
-        "button": "left"
+        "button": "left",
+        "screen_x": 290,
+        "screen_y": 293
       },
-      "screenshot": "frames/000004100.png",
+      "description": "Clicked the Email edit",
+      "context": {
+        "window_title": "Sign in - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "edit",
+        "control_type_id": null,
+        "name": "Email",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          80,
+          268,
+          420,
+          50
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/signin",
+        "source": "uia",
+        "lookup_started_t": 4.102,
+        "lookup_done_t": 4.114,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          80,
+          268,
+          420,
+          50
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000015.png",
+          "source": "still",
+          "capture_seq": 15,
+          "t_capture_start": 3.85,
+          "t_capture_end": 3.88,
+          "offset_s": -0.25
+        },
+        "after": {
+          "status": "unsettled",
+          "file": "frames/f000017.png",
+          "source": "still",
+          "capture_seq": 17,
+          "t_capture_start": 4.35,
+          "t_capture_end": 4.38,
+          "offset_s": 0.25
+        }
+      },
+      "screenshot": "frames/f000015.png",
       "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         0
       ],
+      "narration": [
+        {
+          "segment_id": 0,
+          "t_start": 0.6,
+          "t_end": 3.6,
+          "timing": "before_action"
+        }
+      ],
+      "event_range": [
+        1,
+        1
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 1,
+      "uid": "s000002",
       "t_start": 4.6,
       "t_end": 6.4,
       "action": {
@@ -39,11 +168,44 @@
         "text": "[REDACTED]",
         "redacted": true
       },
-      "screenshot": "frames/000004100.png",
+      "description": "Typed text (redacted)",
+      "context": {
+        "window_title": "Sign in - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000017.png",
+          "source": "still",
+          "capture_seq": 17,
+          "t_capture_start": 4.35,
+          "t_capture_end": 4.38,
+          "offset_s": -0.25
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000029.png",
+          "source": "still",
+          "capture_seq": 29,
+          "t_capture_start": 7.35,
+          "t_capture_end": 7.38,
+          "offset_s": 0.95
+        }
+      },
+      "screenshot": "frames/f000017.png",
       "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
       "reasoning_source": "carried",
       "carried_from": 0,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        2,
+        22
+      ],
+      "n_events": 21,
       "flags": [
         {
           "code": "possible_email",
@@ -55,268 +217,1147 @@
     },
     {
       "id": 2,
+      "uid": "s000023",
       "t_start": 7.4,
       "t_end": 7.4,
       "action": {
         "type": "click",
         "x": 290,
         "y": 393,
-        "button": "left"
+        "button": "left",
+        "screen_x": 290,
+        "screen_y": 393
       },
-      "screenshot": "frames/000007400.png",
+      "description": "Clicked the Password edit",
+      "context": {
+        "window_title": "Sign in - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "edit",
+        "control_type_id": null,
+        "name": "Password",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          80,
+          368,
+          420,
+          50
+        ],
+        "is_password": true,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/signin",
+        "source": "uia",
+        "lookup_started_t": 7.402,
+        "lookup_done_t": 7.414,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          80,
+          368,
+          420,
+          50
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000029.png",
+          "source": "still",
+          "capture_seq": 29,
+          "t_capture_start": 7.35,
+          "t_capture_end": 7.38,
+          "offset_s": -0.05
+        },
+        "after": {
+          "status": "unsettled",
+          "file": "frames/f000030.png",
+          "source": "still",
+          "capture_seq": 30,
+          "t_capture_start": 7.6,
+          "t_capture_end": 7.63,
+          "offset_s": 0.2
+        }
+      },
+      "screenshot": "frames/f000029.png",
       "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
       "reasoning_source": "carried",
       "carried_from": 0,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        23,
+        23
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 3,
+      "uid": "s000024",
       "t_start": 7.8,
       "t_end": 8.79,
       "action": {
         "type": "type",
-        "text": "[REDACTED]",
-        "redacted": true
+        "text": "••••••••••••",
+        "masked_chars": 12
       },
-      "screenshot": "frames/000007400.png",
+      "description": "Typed 12 characters into a password field (masked)",
+      "context": {
+        "window_title": "Sign in - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000030.png",
+          "source": "still",
+          "capture_seq": 30,
+          "t_capture_start": 7.6,
+          "t_capture_end": 7.63,
+          "offset_s": -0.2
+        },
+        "after": {
+          "status": "unsettled",
+          "file": "frames/f000037.png",
+          "source": "still",
+          "capture_seq": 37,
+          "t_capture_start": 9.35,
+          "t_capture_end": 9.38,
+          "offset_s": 0.56
+        }
+      },
+      "screenshot": "frames/f000030.png",
       "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
       "reasoning_source": "carried",
       "carried_from": 0,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        24,
+        35
+      ],
+      "n_events": 12,
       "flags": [
         {
-          "code": "possible_secret",
-          "severity": "high",
-          "detail": "Typed text may be a password: single token mixing letters, digits and symbols.",
+          "code": "masked_input",
+          "severity": "info",
+          "detail": "12 character(s) typed into a password field were masked by the recorder and never stored.",
           "source": "qc"
         }
       ]
     },
     {
       "id": 4,
+      "uid": "s000036",
       "t_start": 9.6,
       "t_end": 9.6,
       "action": {
         "type": "key",
         "key": "enter"
       },
-      "screenshot": "frames/000009600.png",
+      "description": "Pressed Enter",
+      "context": {
+        "window_title": "Sign in - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000037.png",
+          "source": "still",
+          "capture_seq": 37,
+          "t_capture_start": 9.35,
+          "t_capture_end": 9.38,
+          "offset_s": -0.25
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000053.png",
+          "source": "still",
+          "capture_seq": 53,
+          "t_capture_start": 13.35,
+          "t_capture_end": 13.38,
+          "offset_s": 3.75
+        }
+      },
+      "screenshot": "frames/f000037.png",
       "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
       "reasoning_source": "carried",
       "carried_from": 0,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        36,
+        36
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 5,
+      "uid": "s000037",
       "t_start": 13.6,
       "t_end": 13.6,
       "action": {
         "type": "click",
         "x": 230,
         "y": 293,
-        "button": "left"
+        "button": "left",
+        "screen_x": 230,
+        "screen_y": 293
       },
-      "screenshot": "frames/000013600.png",
+      "description": "Clicked the From combobox",
+      "context": {
+        "window_title": "Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "combobox",
+        "control_type_id": null,
+        "name": "From",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          80,
+          268,
+          300,
+          50
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/",
+        "source": "uia",
+        "lookup_started_t": 13.602,
+        "lookup_done_t": 13.614,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          80,
+          268,
+          300,
+          50
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000053.png",
+          "source": "still",
+          "capture_seq": 53,
+          "t_capture_start": 13.35,
+          "t_capture_end": 13.38,
+          "offset_s": -0.25
+        },
+        "after": {
+          "status": "unsettled",
+          "file": "frames/f000055.png",
+          "source": "still",
+          "capture_seq": 55,
+          "t_capture_start": 13.85,
+          "t_capture_end": 13.88,
+          "offset_s": 0.25
+        }
+      },
+      "screenshot": "frames/f000053.png",
       "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         1
       ],
+      "narration": [
+        {
+          "segment_id": 1,
+          "t_start": 10.1,
+          "t_end": 13.2,
+          "timing": "before_action"
+        }
+      ],
+      "event_range": [
+        37,
+        37
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 6,
+      "uid": "s000038",
       "t_start": 14.0,
       "t_end": 14.18,
       "action": {
         "type": "type",
         "text": "YYZ"
       },
-      "screenshot": "frames/000013600.png",
+      "description": "Typed \"YYZ\"",
+      "context": {
+        "window_title": "Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000055.png",
+          "source": "still",
+          "capture_seq": 55,
+          "t_capture_start": 13.85,
+          "t_capture_end": 13.88,
+          "offset_s": -0.15
+        },
+        "after": {
+          "status": "missing",
+          "file": null,
+          "reason": "next action began before a new capture"
+        }
+      },
+      "screenshot": "frames/f000055.png",
       "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
       "reasoning_source": "carried",
       "carried_from": 5,
       "transcript_ids": [],
-      "flags": []
+      "narration": [],
+      "event_range": [
+        38,
+        40
+      ],
+      "n_events": 3,
+      "flags": [
+        {
+          "code": "missing_after_state",
+          "severity": "warn",
+          "detail": "No screen was captured between this action and the next (next action began before a new capture).",
+          "source": "qc"
+        }
+      ]
     },
     {
       "id": 7,
-      "t_start": 15.4,
-      "t_end": 15.4,
+      "uid": "s000041",
+      "t_start": 14.2,
+      "t_end": 14.2,
       "action": {
-        "type": "click",
-        "x": 550,
-        "y": 293,
-        "button": "left"
+        "type": "key",
+        "key": "tab"
       },
-      "screenshot": "frames/000015400.png",
+      "description": "Pressed Tab",
+      "context": {
+        "window_title": "Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "predates_previous_action",
+          "file": "frames/f000056.png",
+          "source": "still",
+          "capture_seq": 56,
+          "t_capture_start": 14.1,
+          "t_capture_end": 14.13,
+          "offset_s": -0.1
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000062.png",
+          "source": "still",
+          "capture_seq": 62,
+          "t_capture_start": 15.6,
+          "t_capture_end": 15.63,
+          "offset_s": 1.4
+        }
+      },
+      "screenshot": "frames/f000056.png",
       "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
       "reasoning_source": "carried",
       "carried_from": 5,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        41,
+        41
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 8,
+      "uid": "s000042",
       "t_start": 15.8,
       "t_end": 15.98,
       "action": {
         "type": "type",
         "text": "SFO"
       },
-      "screenshot": "frames/000015400.png",
+      "description": "Typed \"SFO\"",
+      "context": {
+        "window_title": "Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000062.png",
+          "source": "still",
+          "capture_seq": 62,
+          "t_capture_start": 15.6,
+          "t_capture_end": 15.63,
+          "offset_s": -0.2
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000068.png",
+          "source": "still",
+          "capture_seq": 68,
+          "t_capture_start": 17.1,
+          "t_capture_end": 17.13,
+          "offset_s": 1.12
+        }
+      },
+      "screenshot": "frames/f000062.png",
       "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
       "reasoning_source": "carried",
       "carried_from": 5,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        42,
+        44
+      ],
+      "n_events": 3,
       "flags": []
     },
     {
       "id": 9,
+      "uid": "s000045",
       "t_start": 17.3,
       "t_end": 17.3,
       "action": {
         "type": "click",
         "x": 850,
         "y": 293,
-        "button": "left"
+        "button": "left",
+        "screen_x": 850,
+        "screen_y": 293
       },
-      "screenshot": "frames/000017300.png",
+      "description": "Clicked the Depart combobox",
+      "context": {
+        "window_title": "Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "combobox",
+        "control_type_id": null,
+        "name": "Depart",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          720,
+          268,
+          260,
+          50
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/",
+        "source": "uia",
+        "lookup_started_t": 17.302,
+        "lookup_done_t": 17.314,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          720,
+          268,
+          260,
+          50
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000068.png",
+          "source": "still",
+          "capture_seq": 68,
+          "t_capture_start": 17.1,
+          "t_capture_end": 17.13,
+          "offset_s": -0.2
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000076.png",
+          "source": "still",
+          "capture_seq": 76,
+          "t_capture_start": 19.1,
+          "t_capture_end": 19.13,
+          "offset_s": 1.8
+        }
+      },
+      "screenshot": "frames/f000068.png",
       "reasoning": "Then the date, the seventeenth.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         2
       ],
+      "narration": [
+        {
+          "segment_id": 2,
+          "t_start": 16.4,
+          "t_end": 17.1,
+          "timing": "before_action"
+        }
+      ],
+      "event_range": [
+        45,
+        45
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 10,
+      "uid": "s000046",
       "t_start": 19.2,
       "t_end": 19.2,
       "action": {
         "type": "click",
         "x": 1080,
         "y": 293,
-        "button": "left"
+        "button": "left",
+        "screen_x": 1080,
+        "screen_y": 293
       },
-      "screenshot": "frames/000019200.png",
+      "description": "Clicked the Search button",
+      "context": {
+        "window_title": "Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "button",
+        "control_type_id": null,
+        "name": "Search",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          1000,
+          268,
+          160,
+          50
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/",
+        "source": "uia",
+        "lookup_started_t": 19.202,
+        "lookup_done_t": 19.214,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          1000,
+          268,
+          160,
+          50
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000076.png",
+          "source": "still",
+          "capture_seq": 76,
+          "t_capture_start": 19.1,
+          "t_capture_end": 19.13,
+          "offset_s": -0.1
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000099.png",
+          "source": "still",
+          "capture_seq": 99,
+          "t_capture_start": 24.85,
+          "t_capture_end": 24.88,
+          "offset_s": 5.65
+        }
+      },
+      "screenshot": "frames/f000076.png",
       "reasoning": "Then the date, the seventeenth.",
       "reasoning_source": "carried",
       "carried_from": 9,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        46,
+        46
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 11,
+      "uid": "s000047",
       "t_start": 24.9,
       "t_end": 24.9,
       "action": {
         "type": "click",
         "x": 1350,
         "y": 192,
-        "button": "left"
+        "button": "left",
+        "screen_x": 1350,
+        "screen_y": 192
       },
-      "screenshot": "frames/000024900.png",
+      "description": "Clicked the Sort: Recommended combobox",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "combobox",
+        "control_type_id": null,
+        "name": "Sort: Recommended",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          1180,
+          170,
+          340,
+          44
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17",
+        "source": "uia",
+        "lookup_started_t": 24.902,
+        "lookup_done_t": 24.914,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          1180,
+          170,
+          340,
+          44
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000099.png",
+          "source": "still",
+          "capture_seq": 99,
+          "t_capture_start": 24.85,
+          "t_capture_end": 24.88,
+          "offset_s": -0.05
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000103.png",
+          "source": "still",
+          "capture_seq": 103,
+          "t_capture_start": 25.85,
+          "t_capture_end": 25.88,
+          "offset_s": 0.95
+        }
+      },
+      "screenshot": "frames/f000099.png",
       "reasoning": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         3
       ],
+      "narration": [
+        {
+          "segment_id": 3,
+          "t_start": 19.6,
+          "t_end": 23.9,
+          "timing": "before_action"
+        }
+      ],
+      "event_range": [
+        47,
+        47
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 12,
+      "uid": "s000048",
       "t_start": 26.1,
       "t_end": 26.1,
       "action": {
         "type": "click",
         "x": 1300,
         "y": 283,
-        "button": "left"
+        "button": "left",
+        "screen_x": 1300,
+        "screen_y": 283
       },
-      "screenshot": "frames/000026100.png",
+      "description": "Clicked the Price: low to high list item",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "list item",
+        "control_type_id": null,
+        "name": "Price: low to high",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          1180,
+          256,
+          340,
+          38
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17",
+        "source": "uia",
+        "lookup_started_t": 26.102,
+        "lookup_done_t": 26.114,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          1180,
+          256,
+          340,
+          38
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000103.png",
+          "source": "still",
+          "capture_seq": 103,
+          "t_capture_start": 25.85,
+          "t_capture_end": 25.88,
+          "offset_s": -0.25
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000109.png",
+          "source": "still",
+          "capture_seq": 109,
+          "t_capture_start": 27.35,
+          "t_capture_end": 27.38,
+          "offset_s": 1.25
+        }
+      },
+      "screenshot": "frames/f000103.png",
       "reasoning": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
       "reasoning_source": "carried",
       "carried_from": 11,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        48,
+        48
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 13,
+      "uid": "s000049",
       "t_start": 27.4,
-      "t_end": 28.5,
+      "t_end": 29.7,
       "action": {
         "type": "scroll",
         "x": 800,
         "y": 600,
-        "dx": 0,
-        "dy": -3
+        "screen_x": 800,
+        "screen_y": 600,
+        "unit": "notch",
+        "events": [
+          {
+            "t": 27.4,
+            "x": 800,
+            "y": 600,
+            "dx": 0.0,
+            "dy": -2.0,
+            "raw": -240
+          },
+          {
+            "t": 27.9,
+            "x": 800,
+            "y": 600,
+            "dx": 0.0,
+            "dy": -3.0,
+            "raw": -360
+          },
+          {
+            "t": 29.7,
+            "x": 800,
+            "y": 600,
+            "dx": 0.0,
+            "dy": 1.0,
+            "raw": 120
+          }
+        ],
+        "runs": [
+          {
+            "direction": "down",
+            "amount": 5.0,
+            "t_start": 27.4,
+            "t_end": 27.9,
+            "n_events": 2
+          },
+          {
+            "direction": "up",
+            "amount": 1.0,
+            "t_start": 29.7,
+            "t_end": 29.7,
+            "n_events": 1
+          }
+        ],
+        "net_dx": 0.0,
+        "net_dy": -4.0
       },
-      "screenshot": "frames/000026100.png",
+      "description": "Scrolled down 5, then up 1",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": null,
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000109.png",
+          "source": "still",
+          "capture_seq": 109,
+          "t_capture_start": 27.35,
+          "t_capture_end": 27.38,
+          "offset_s": -0.05
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000140.png",
+          "source": "still",
+          "capture_seq": 140,
+          "t_capture_start": 35.1,
+          "t_capture_end": 35.13,
+          "offset_s": 5.4
+        }
+      },
+      "screenshot": "frames/f000109.png",
       "reasoning": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
       "reasoning_source": "carried",
       "carried_from": 11,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        49,
+        51
+      ],
+      "n_events": 3,
       "flags": []
     },
     {
       "id": 14,
+      "uid": "s000052",
       "t_start": 35.2,
       "t_end": 35.2,
       "action": {
         "type": "click",
         "x": 200,
         "y": 270,
-        "button": "left"
+        "button": "left",
+        "screen_x": 200,
+        "screen_y": 270
       },
-      "screenshot": "frames/000035200.png",
+      "description": "Clicked the Nonstop only checkbox",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "checkbox",
+        "control_type_id": null,
+        "name": "Nonstop only",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          80,
+          250,
+          250,
+          40
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17",
+        "source": "uia",
+        "lookup_started_t": 35.202,
+        "lookup_done_t": 35.214,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          80,
+          250,
+          250,
+          40
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000140.png",
+          "source": "still",
+          "capture_seq": 140,
+          "t_capture_start": 35.1,
+          "t_capture_end": 35.13,
+          "offset_s": -0.1
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000153.png",
+          "source": "still",
+          "capture_seq": 153,
+          "t_capture_start": 38.35,
+          "t_capture_end": 38.38,
+          "offset_s": 3.15
+        }
+      },
+      "screenshot": "frames/f000140.png",
       "reasoning": "The cheapest one has a stop in Chicago. The task says direct, so I filter to nonstop instead of just grabbing the top result.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         4
       ],
+      "narration": [
+        {
+          "segment_id": 4,
+          "t_start": 29.6,
+          "t_end": 34.8,
+          "timing": "before_action"
+        }
+      ],
+      "event_range": [
+        52,
+        52
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 15,
+      "uid": "s000053",
       "t_start": 38.4,
       "t_end": 38.4,
       "action": {
         "type": "click",
         "x": 700,
         "y": 368,
-        "button": "left"
+        "button": "left",
+        "screen_x": 700,
+        "screen_y": 368
       },
-      "screenshot": "frames/000038400.png",
+      "description": "Clicked the Air Canada 8:30 to 11:02, nonstop, $312 list item",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "list item",
+        "control_type_id": null,
+        "name": "Air Canada 8:30 to 11:02, nonstop, $312",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          80,
+          320,
+          1440,
+          96
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17",
+        "source": "uia",
+        "lookup_started_t": 38.402,
+        "lookup_done_t": 38.414,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          80,
+          320,
+          1440,
+          96
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000153.png",
+          "source": "still",
+          "capture_seq": 153,
+          "t_capture_start": 38.35,
+          "t_capture_end": 38.38,
+          "offset_s": -0.05
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000247.png",
+          "source": "still",
+          "capture_seq": 247,
+          "t_capture_start": 61.85,
+          "t_capture_end": 61.88,
+          "offset_s": 23.45
+        }
+      },
+      "screenshot": "frames/f000153.png",
       "reasoning": "Air Canada, three twelve, nonstop. That's the one.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         5
       ],
+      "narration": [
+        {
+          "segment_id": 5,
+          "t_start": 35.9,
+          "t_end": 38.0,
+          "timing": "before_action"
+        }
+      ],
+      "event_range": [
+        53,
+        53
+      ],
+      "n_events": 1,
       "flags": []
     },
     {
       "id": 16,
+      "uid": "s000054",
       "t_start": 62.0,
       "t_end": 62.0,
       "action": {
         "type": "click",
-        "x": 1320,
+        "x": 1270,
         "y": 368,
-        "button": "left"
+        "button": "left",
+        "screen_x": 1270,
+        "screen_y": 368
       },
-      "screenshot": "frames/000062000.png",
+      "description": "Clicked the Details link",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "link",
+        "control_type_id": null,
+        "name": "Details",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          1240,
+          356,
+          64,
+          22
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17",
+        "source": "uia",
+        "lookup_started_t": 62.002,
+        "lookup_done_t": 62.014,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          1240,
+          356,
+          64,
+          22
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000247.png",
+          "source": "still",
+          "capture_seq": 247,
+          "t_capture_start": 61.85,
+          "t_capture_end": 61.88,
+          "offset_s": -0.15
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000261.png",
+          "source": "still",
+          "capture_seq": 261,
+          "t_capture_start": 65.35,
+          "t_capture_end": 65.38,
+          "offset_s": 3.35
+        }
+      },
+      "screenshot": "frames/f000247.png",
       "reasoning": "",
       "reasoning_source": null,
       "carried_from": null,
       "transcript_ids": [],
+      "narration": [],
+      "event_range": [
+        54,
+        54
+      ],
+      "n_events": 1,
       "flags": [
         {
           "code": "missing_reasoning",
@@ -334,21 +1375,94 @@
     },
     {
       "id": 17,
+      "uid": "s000055",
       "t_start": 65.6,
       "t_end": 65.6,
       "action": {
         "type": "click",
-        "x": 1100,
+        "x": 1110,
         "y": 368,
-        "button": "left"
+        "button": "left",
+        "screen_x": 1110,
+        "screen_y": 368
       },
-      "screenshot": "frames/000065600.png",
+      "description": "Clicked the Select button",
+      "context": {
+        "window_title": "YYZ to SFO - Farefinder - Google Chrome",
+        "process": "chrome.exe",
+        "hwnd": 172302
+      },
+      "target": {
+        "status": "ok",
+        "role": "button",
+        "control_type_id": null,
+        "name": "Select",
+        "automation_id": "",
+        "class_name": "",
+        "framework": "Chrome",
+        "rect": [
+          1040,
+          343,
+          140,
+          50
+        ],
+        "is_password": false,
+        "pid": 4242,
+        "hit": null,
+        "url_status": "ok",
+        "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17",
+        "source": "uia",
+        "lookup_started_t": 65.602,
+        "lookup_done_t": 65.614,
+        "latency_ms": 14.0,
+        "reliable": true,
+        "frame_rect": [
+          1040,
+          343,
+          140,
+          50
+        ]
+      },
+      "observations": {
+        "before": {
+          "status": "ok",
+          "file": "frames/f000261.png",
+          "source": "still",
+          "capture_seq": 261,
+          "t_capture_start": 65.35,
+          "t_capture_end": 65.38,
+          "offset_s": -0.25
+        },
+        "after": {
+          "status": "settled",
+          "file": "frames/f000286.png",
+          "source": "still",
+          "capture_seq": 286,
+          "t_capture_start": 71.52,
+          "t_capture_end": 71.55,
+          "offset_s": 5.92
+        }
+      },
+      "screenshot": "frames/f000261.png",
       "reasoning": "Okay, it's in checkout at three hundred twelve, nonstop, on the seventeenth. That matches what I was asked for.",
       "reasoning_source": "narrated",
       "carried_from": null,
       "transcript_ids": [
         6
       ],
+      "narration": [
+        {
+          "segment_id": 6,
+          "t_start": 66.4,
+          "t_end": 70.2,
+          "timing": "after_action"
+        }
+      ],
+      "event_range": [
+        55,
+        55
+      ],
+      "n_events": 1,
       "flags": []
     }
   ],
@@ -358,62 +1472,70 @@
       "t_start": 0.6,
       "t_end": 3.6,
       "text": "First I'm signing in, because this site only shows member fares when you're logged in.",
-      "step_id": 0
+      "step_id": 0,
+      "timing": "before_action"
     },
     {
       "id": 1,
       "t_start": 10.1,
       "t_end": 13.2,
       "text": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
-      "step_id": 5
+      "step_id": 5,
+      "timing": "before_action"
     },
     {
       "id": 2,
       "t_start": 16.4,
       "t_end": 17.1,
       "text": "Then the date, the seventeenth.",
-      "step_id": 9
+      "step_id": 9,
+      "timing": "before_action"
     },
     {
       "id": 3,
       "t_start": 19.6,
       "t_end": 23.9,
       "text": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
-      "step_id": 11
+      "step_id": 11,
+      "timing": "before_action"
     },
     {
       "id": 4,
       "t_start": 29.6,
       "t_end": 34.8,
       "text": "The cheapest one has a stop in Chicago. The task says direct, so I filter to nonstop instead of just grabbing the top result.",
-      "step_id": 14
+      "step_id": 14,
+      "timing": "before_action"
     },
     {
       "id": 5,
       "t_start": 35.9,
       "t_end": 38.0,
       "text": "Air Canada, three twelve, nonstop. That's the one.",
-      "step_id": 15
+      "step_id": 15,
+      "timing": "before_action"
     },
     {
       "id": 6,
       "t_start": 66.4,
       "t_end": 70.2,
       "text": "Okay, it's in checkout at three hundred twelve, nonstop, on the seventeenth. That matches what I was asked for.",
-      "step_id": 17
+      "step_id": 17,
+      "timing": "after_action"
     }
   ],
   "session_flags": [],
   "qc": {
-    "summary": "18 steps, 1 missing reasoning, 1 idle gap, 1 possible secret, 1 typed email",
+    "summary": "18 steps, 1 missing reasoning, 1 idle gap, 1 typed email, 1 missing after-state, 1 masked input",
     "counts": {
       "possible_email": 1,
-      "possible_secret": 1,
+      "masked_input": 1,
+      "missing_after_state": 1,
       "missing_reasoning": 1,
       "idle_gap": 1
     },
-    "high_severity": 2,
-    "redacted_steps": 2
+    "high_severity": 1,
+    "redacted_steps": 1
   },
   "review": {
     "outcome": null,

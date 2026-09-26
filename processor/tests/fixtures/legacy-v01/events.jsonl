@@ -1,0 +1,57 @@
+{"t": 0.0, "type": "marker", "name": "start", "frame": "frames/000000000.png"}
+{"t": 4.1, "type": "click", "x": 290, "y": 293, "button": "left", "frame": "frames/000004100.png"}
+{"t": 4.6, "type": "key", "key": "z"}
+{"t": 4.69, "type": "key", "key": "a"}
+{"t": 4.78, "type": "key", "key": "i"}
+{"t": 4.87, "type": "key", "key": "n"}
+{"t": 4.96, "type": "key", "key": "."}
+{"t": 5.05, "type": "key", "key": "d"}
+{"t": 5.14, "type": "key", "key": "e"}
+{"t": 5.23, "type": "key", "key": "m"}
+{"t": 5.32, "type": "key", "key": "o"}
+{"t": 5.41, "type": "key", "key": "@"}
+{"t": 5.5, "type": "key", "key": "e"}
+{"t": 5.59, "type": "key", "key": "x"}
+{"t": 5.68, "type": "key", "key": "a"}
+{"t": 5.77, "type": "key", "key": "m"}
+{"t": 5.86, "type": "key", "key": "p"}
+{"t": 5.95, "type": "key", "key": "l"}
+{"t": 6.04, "type": "key", "key": "e"}
+{"t": 6.13, "type": "key", "key": "."}
+{"t": 6.22, "type": "key", "key": "c"}
+{"t": 6.31, "type": "key", "key": "o"}
+{"t": 6.4, "type": "key", "key": "m"}
+{"t": 7.4, "type": "click", "x": 290, "y": 393, "button": "left", "frame": "frames/000007400.png"}
+{"t": 7.8, "type": "key", "key": "T"}
+{"t": 7.89, "type": "key", "key": "r"}
+{"t": 7.98, "type": "key", "key": "4"}
+{"t": 8.07, "type": "key", "key": "v"}
+{"t": 8.16, "type": "key", "key": "e"}
+{"t": 8.25, "type": "key", "key": "l"}
+{"t": 8.34, "type": "key", "key": "!"}
+{"t": 8.43, "type": "key", "key": "2"}
+{"t": 8.52, "type": "key", "key": "0"}
+{"t": 8.61, "type": "key", "key": "2"}
+{"t": 8.7, "type": "key", "key": "6"}
+{"t": 8.79, "type": "key", "key": "x"}
+{"t": 9.6, "type": "key", "key": "enter", "frame": "frames/000009600.png"}
+{"t": 13.6, "type": "click", "x": 230, "y": 293, "button": "left", "frame": "frames/000013600.png"}
+{"t": 14.0, "type": "key", "key": "Y"}
+{"t": 14.09, "type": "key", "key": "Y"}
+{"t": 14.18, "type": "key", "key": "Z"}
+{"t": 15.4, "type": "click", "x": 550, "y": 293, "button": "left", "frame": "frames/000015400.png"}
+{"t": 15.8, "type": "key", "key": "S"}
+{"t": 15.89, "type": "key", "key": "F"}
+{"t": 15.98, "type": "key", "key": "O"}
+{"t": 17.3, "type": "click", "x": 850, "y": 293, "button": "left", "frame": "frames/000017300.png"}
+{"t": 19.2, "type": "click", "x": 1080, "y": 293, "button": "left", "frame": "frames/000019200.png"}
+{"t": 24.9, "type": "click", "x": 1350, "y": 192, "button": "left", "frame": "frames/000024900.png"}
+{"t": 26.1, "type": "click", "x": 1300, "y": 283, "button": "left", "frame": "frames/000026100.png"}
+{"t": 27.4, "type": "scroll", "x": 800, "y": 600, "dx": 0, "dy": -2}
+{"t": 27.9, "type": "scroll", "x": 800, "y": 600, "dx": 0, "dy": -3}
+{"t": 28.5, "type": "scroll", "x": 800, "y": 600, "dx": 0, "dy": 2}
+{"t": 35.2, "type": "click", "x": 200, "y": 270, "button": "left", "frame": "frames/000035200.png"}
+{"t": 38.4, "type": "click", "x": 700, "y": 368, "button": "left", "frame": "frames/000038400.png"}
+{"t": 62.0, "type": "click", "x": 1320, "y": 368, "button": "left", "frame": "frames/000062000.png"}
+{"t": 65.6, "type": "click", "x": 1100, "y": 368, "button": "left", "frame": "frames/000065600.png"}
+{"t": 71.5, "type": "marker", "name": "end", "frame": "frames/000071500.png"}

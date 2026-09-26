@@ -1,21 +1,36 @@
 """Think-aloud trajectory recorder.
 
-Captures mouse clicks, keystrokes, scrolls, screenshots and microphone audio
-while an expert does a task and narrates it. Press F9 to stop.
+Captures what an expert does (clicks, keys, scrolls), what the screen looked
+like before and after each action, a low-frame-rate screen video, and their
+narration, while they do a real task and talk through it. F9 stops, F8 pauses.
 
-Output: sessions/<timestamp>/
-    events.jsonl   one JSON object per line, times in seconds since start
-    audio.wav      16 kHz mono int16 (missing if no mic / --no-audio)
-    frames/*.png   screenshots named by millisecond offset
-    meta.json      task, success criteria, screen size, duration, ...
+Output: sessions/<timestamp>/  (schema thinkaloud.session/0.2)
+    events.jsonl        input events in order; times are seconds on the recording clock
+    frames/stills.jsonl which screen captures were kept as PNG stills, with capture times
+    frames/fNNNNNN.png  the stills (full resolution, lossless)
+    screen.mkv          H.264 screen video, one frame per capture, PTS = capture time
+    video_frames.jsonl  per video frame: capture seq, pts, capture start/end
+    audio.wav           16 kHz mono int16 narration (missing if no mic / --no-audio)
+    meta.json           task, "done when", clocks, coordinate space, media stats, errors
 
-Screenshots are taken at start, at end, on every mouse click, and on Enter/Tab.
+Clock: every timestamp is time.perf_counter() minus the value at recording start
+(t0). Screen captures record when the grab started and finished. Audio sample 0
+is placed on the same clock from callback arrival times (see AudioCapture).
+
+How screenshots are chosen (the "before"/"after" contract):
+    A capture thread grabs the screen every 1/fps seconds into a small ring.
+    When an input event starts a potential new action, the most recent frame whose
+    grab FINISHED before the event is saved as its "before" still, so a before
+    image can never contain the action's own effect. When input goes quiet for
+    `settle` seconds, the next frame is saved as a "settled" still (the resulting
+    screen, e.g. after a scroll or page load). A final "end" frame is grabbed
+    after stop. The processor pairs steps with these stills by timestamp.
 
 App mode (used by the desktop app, see desktop/):
     --json          status as JSON lines on stdout; reads commands from stdin:
-                    {"cmd": "stop"} or {"cmd": "exclude", "rect": [x, y, w, h]}
-                    (clicks inside an excluded rect, e.g. the app's own Stop
-                    button, are not recorded)
+                    {"cmd": "stop"}, {"cmd": "pause"}, {"cmd": "resume"},
+                    {"cmd": "exclude", "rect": [x, y, w, h]} (clicks and scrolls inside an
+                    excluded rect, e.g. the app's own Stop pill, are not recorded)
     --list-devices  print input devices as JSON and exit
     --meter         print mic levels as JSON until stdin closes (mic check)
 """
@@ -30,7 +45,10 @@ import sys
 import threading
 import time
 import wave
+from collections import deque
+from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from pathlib import Path
 
 import mss
@@ -38,10 +56,33 @@ import mss.tools
 import numpy as np
 from pynput import keyboard, mouse
 
-RECORDER_VERSION = "0.1.0"
+import winctx
+
+RECORDER_VERSION = "0.2.0"
+SESSION_SCHEMA = "thinkaloud.session/0.2"
 SAMPLE_RATE = 16_000
 STOP_KEY = keyboard.Key.f9
+PAUSE_KEY = keyboard.Key.f8
 JSON_MODE = False
+
+DEFAULT_FPS = 4.0
+DEFAULT_SETTLE_S = 0.6       # quiet time before a "settled" still is taken
+CANDIDATE_GAP_S = 1.0        # input after this much quiet may start a new action
+RING_SIZE = 6                # frames kept in memory for "before" lookups
+STILL_QUEUE_MAX = 6          # PNG encodes waiting; bounds memory (~15 MB per 1440p frame)
+VIDEO_QUEUE_MAX = 8          # frames waiting for the encoder; overflow drops frames, not sync
+UIA_WAIT_S = 1.5             # how long the writer waits for a UI Automation answer
+WHEEL_DELTA = 120
+WM_MOUSEWHEEL, WM_MOUSEHWHEEL = 0x020A, 0x020E
+LLMHF_INJECTED_ANY = 0x1 | 0x2
+
+MODIFIERS = {
+    keyboard.Key.ctrl: "ctrl", keyboard.Key.ctrl_l: "ctrl", keyboard.Key.ctrl_r: "ctrl",
+    keyboard.Key.alt: "alt", keyboard.Key.alt_l: "alt", keyboard.Key.alt_r: "alt",
+    keyboard.Key.alt_gr: "alt", keyboard.Key.cmd: "cmd", keyboard.Key.cmd_l: "cmd",
+    keyboard.Key.cmd_r: "cmd",
+}
+SHIFTS = {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}
 
 
 def say(event: str, text: str = "", **fields) -> None:
@@ -81,12 +122,6 @@ def list_devices() -> list[dict]:
                      if n.startswith(d["name"]) and len(n) > len(d["name"])), d["name"])
         out.append({"index": i, "name": name, "default": i == default_in})
     return out
-MODIFIERS = {
-    keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r,
-    keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt_gr,
-    keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r,
-}
-SHIFTS = {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}
 
 
 def make_dpi_aware() -> None:
@@ -103,44 +138,326 @@ def make_dpi_aware() -> None:
             pass
 
 
-class Recorder:
-    def __init__(self, out_dir: Path, task: str, criteria: str, audio: bool, monitor: int,
-                 device: int | None = None):
-        self.out = out_dir
-        self.frames_dir = out_dir / "frames"
-        self.frames_dir.mkdir(parents=True, exist_ok=True)
-        self.task = task
-        self.criteria = criteria
-        self.want_audio = audio
-        self.monitor_idx = monitor
-        self.device = device
+def _mss():
+    return mss.MSS() if hasattr(mss, "MSS") else mss.mss()
+
+
+@dataclass(frozen=True)
+class Frame:
+    seq: int
+    t0: float          # grab started (recording clock)
+    t1: float          # grab finished
+    bgra: bytes
+    w: int
+    h: int
+
+
+class StillWriter(threading.Thread):
+    """Encodes selected frames to PNG off the input path and indexes every request."""
+
+    def __init__(self, out: Path, clock):
+        super().__init__(daemon=True, name="stills")
+        self.out, self.clock = out, clock
+        self.q: queue.Queue = queue.Queue(maxsize=STILL_QUEUE_MAX)
+        self.index = open(out / "frames" / "stills.jsonl", "w", encoding="utf-8")
+        self.lock = threading.Lock()
+        self.files: dict[int, str] = {}      # frame seq -> file, once queued
+        self.saved = 0
+        self.failed = 0
+        self.dropped = 0
+
+    def request(self, frame: Frame | None, kind: str, ref_t: float) -> int | None:
+        """Never blocks. Returns the frame seq that will hold the still, or None."""
+        if frame is None:
+            self._write_index({"kind": kind, "ref_t": round(ref_t, 4), "status": "missing",
+                               "reason": "no completed capture before this time"})
+            return None
+        with self.lock:
+            existing = self.files.get(frame.seq)
+            if existing is None:
+                self.files[frame.seq] = f"frames/f{frame.seq:06d}.png"
+        try:
+            self.q.put_nowait((None if existing else frame, frame.seq, frame.t0, frame.t1, kind, ref_t))
+        except queue.Full:
+            if existing is None:
+                with self.lock:
+                    self.files.pop(frame.seq, None)
+            self.dropped += 1
+            self._write_index({"kind": kind, "ref_t": round(ref_t, 4), "seq": frame.seq,
+                               "status": "dropped", "reason": "still encoder backlog"})
+            return None
+        return frame.seq
+
+    def _write_index(self, rec: dict) -> None:
+        with self.lock:
+            self.index.write(json.dumps(rec) + "\n")
+            self.index.flush()
+
+    def run(self) -> None:
+        while True:
+            item = self.q.get()
+            if item is None:
+                break
+            frame, seq, t0, t1, kind, ref_t = item
+            rel = self.files.get(seq, f"frames/f{seq:06d}.png")
+            rec = {"seq": seq, "file": rel, "kind": kind, "ref_t": round(ref_t, 4),
+                   "t_capture_start": round(t0, 4), "t_capture_end": round(t1, 4)}
+            if frame is not None:
+                try:
+                    arr = np.frombuffer(frame.bgra, np.uint8).reshape(frame.h, frame.w, 4)
+                    rgb = np.ascontiguousarray(arr[:, :, 2::-1])
+                    mss.tools.to_png(rgb.tobytes(), (frame.w, frame.h), level=2,
+                                     output=str(self.out / rel))
+                    self.saved += 1
+                    rec.update(status="ok", w=frame.w, h=frame.h)
+                except Exception as e:
+                    self.failed += 1
+                    rec.update(status="error", reason=f"{type(e).__name__}: {e}")
+            else:
+                rec["status"] = "ok_duplicate"  # same frame already stored for another request
+            self._write_index(rec)
+        self.index.close()
+
+
+class VideoWriter(threading.Thread):
+    """Encodes every captured frame to H.264 in Matroska (survives crashes better than
+    MP4). Presentation time = capture midpoint in ms, so dropped or late frames leave
+    a gap instead of shifting everything after them."""
+
+    def __init__(self, out: Path, fps: float):
+        super().__init__(daemon=True, name="video")
+        self.out, self.fps = out, fps
+        self.q: queue.Queue = queue.Queue(maxsize=VIDEO_QUEUE_MAX)
+        self.frames = 0
+        self.dropped = 0
+        self.error: str | None = None
+        self.codec: str | None = None
+        self.size: tuple[int, int] | None = None
+
+    def offer(self, frame: Frame) -> None:
+        if self.error:
+            return
+        try:
+            self.q.put_nowait(frame)
+        except queue.Full:
+            self.dropped += 1
+
+    def run(self) -> None:
+        container = stream = None
+        index = open(self.out / "video_frames.jsonl", "w", encoding="utf-8")
+        last_pts = -1
+        try:
+            import av
+        except Exception as e:
+            self.error = f"PyAV unavailable: {e}"
+        while True:
+            f = self.q.get()
+            if f is None:
+                break
+            if self.error:
+                continue  # keep draining so memory is released
+            try:
+                if container is None:
+                    w, h = f.w - f.w % 2, f.h - f.h % 2   # yuv420p needs even sizes
+                    container = av.open(str(self.out / "screen.mkv"), "w")
+                    stream = container.add_stream("libx264", rate=max(1, round(self.fps)))
+                    stream.width, stream.height, stream.pix_fmt = w, h, "yuv420p"
+                    stream.codec_context.time_base = Fraction(1, 1000)
+                    # no B-frames: packets stay in presentation order, so Matroska keeps a
+                    # usable dts on every packet and the remux to MP4 needs no reordering
+                    stream.options = {"preset": "veryfast", "crf": "24", "bf": "0",
+                                      "g": str(max(1, round(self.fps * 2)))}
+                    self.codec, self.size = "h264", (w, h)
+                w, h = self.size
+                arr = np.frombuffer(f.bgra, np.uint8).reshape(f.h, f.w, 4)[:h, :w]
+                vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(arr), format="bgra")
+                pts = max(int(round((f.t0 + f.t1) / 2 * 1000)), last_pts + 1)
+                last_pts = pts
+                vf.pts, vf.time_base = pts, Fraction(1, 1000)
+                for p in stream.encode(vf):
+                    container.mux(p)
+                index.write(json.dumps({"seq": f.seq, "pts_ms": pts, "t_capture_start": round(f.t0, 4),
+                                        "t_capture_end": round(f.t1, 4)}) + "\n")
+                self.frames += 1
+            except Exception as e:
+                self.error = f"{type(e).__name__}: {e}"
+        try:
+            if container is not None:
+                if not self.error:
+                    for p in stream.encode():
+                        container.mux(p)
+                container.close()
+        except Exception as e:
+            self.error = self.error or f"{type(e).__name__}: {e}"
+        index.close()
+
+
+class AudioCapture:
+    """Microphone to audio.wav, streamed to disk (bounded memory).
+
+    Placing sample 0 on the recording clock: PortAudio's stream clock is the same
+    QueryPerformanceCounter clock as perf_counter, but MME reports no ADC timestamps
+    in callbacks. Each callback arriving at t_cb after n samples in total proves
+    sample 0 was captured no later than t_cb - (n - 1)/sr. The tightest such bound
+    (the least-delayed callback) minus the stream's reported input latency is the
+    offset. Anchors (t_cb, n) are kept so the drift of the sound card's clock
+    against perf_counter can be measured afterwards.
+    """
+
+    def __init__(self, out: Path, clock, device: int | None, is_paused):
+        self.out, self.clock, self.device, self.is_paused = out, clock, device, is_paused
+        self.q: queue.Queue = queue.Queue()
+        self.samples = 0
         self.level = 0.0
-        self.excluded: list[tuple[int, int, int, int]] = []  # x, y, w, h
+        self.overflows = 0
+        self.bound = None          # min(t_cb - (n-1)/sr)
+        self.anchors: list[tuple[float, int]] = []
+        self.error: str | None = None
+        self.latency = 0.0
+        self.stream = None
+        self.thread = None
+        self.started_t = None
+
+    def start(self) -> bool:
+        try:
+            import sounddevice as sd
+
+            def callback(indata, frames, time_info, status):
+                t_cb = self.clock()
+                self.q.put((indata.copy(), t_cb, bool(status.input_overflow)))
+
+            self.stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, device=self.device,
+                                         dtype="int16", callback=callback)
+            self.stream.start()
+            self.started_t = self.clock()
+            lat = self.stream.latency
+            self.latency = float(lat[0] if isinstance(lat, (tuple, list)) else lat)
+        except Exception as e:
+            self.error = f"{type(e).__name__}: {e}"
+            say("warning", f"[warn] audio disabled: {self.error}", message=self.error)
+            self.stream = None
+            return False
+        self.thread = threading.Thread(target=self._write, daemon=True, name="audio")
+        self.thread.start()
+        return True
+
+    def _write(self) -> None:
+        wav = wave.open(str(self.out / "audio.wav"), "wb")
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(SAMPLE_RATE)
+        last_anchor = -1.0
+        while True:
+            item = self.q.get()
+            if item is None:
+                break
+            data, t_cb, overflow = item
+            if self.is_paused():
+                data = np.zeros_like(data)  # keep the sample clock, drop the content
+            wav.writeframes(data.tobytes())
+            self.samples += len(data)
+            self.level = rms_level(data)
+            self.overflows += int(overflow)
+            bound = t_cb - (self.samples - 1) / SAMPLE_RATE
+            self.bound = bound if self.bound is None else min(self.bound, bound)
+            if t_cb - last_anchor >= 1.0:
+                self.anchors.append((round(t_cb, 5), self.samples))
+                last_anchor = t_cb
+        wav.close()
+
+    def stop(self) -> None:
+        if self.stream is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception as e:
+                self.error = self.error or f"{type(e).__name__}: {e}"
+        if self.thread is not None:
+            self.q.put(None)
+            self.thread.join(timeout=10)
+
+    def meta(self) -> dict:
+        has = self.samples > 0
+        offset = None if self.bound is None else round(self.bound - self.latency, 4)
+        drift_ppm = None
+        if len(self.anchors) >= 3:
+            ts = np.array([a[0] for a in self.anchors])
+            ns = np.array([a[1] for a in self.anchors], dtype=np.float64)
+            slope = np.polyfit(ns, ts, 1)[0]            # seconds of perf_counter per sample
+            drift_ppm = round((slope * SAMPLE_RATE - 1.0) * 1e6, 1)
+        return {"file": "audio.wav" if has else None, "sample_rate": SAMPLE_RATE,
+                "samples": self.samples, "offset_s": offset,
+                "offset_method": "min callback bound minus reported input latency",
+                "reported_input_latency_s": round(self.latency, 4),
+                "clock_drift_ppm": drift_ppm, "overflows": self.overflows,
+                "anchors": self.anchors[:: max(1, len(self.anchors) // 400)],
+                "error": self.error}
+
+
+class Recorder:
+    def __init__(self, out_dir: Path, task: str, criteria: str, audio: bool = True, monitor: int = 1,
+                 device: int | None = None, fps: float = DEFAULT_FPS, video: bool = True,
+                 use_uia: bool = True, settle_s: float = DEFAULT_SETTLE_S):
+        self.out = out_dir
+        (out_dir / "frames").mkdir(parents=True, exist_ok=True)
+        self.task, self.criteria = task, criteria
+        self.want_audio, self.monitor_idx, self.device = audio, monitor, device
+        self.fps, self.want_video, self.use_uia, self.settle_s = fps, video, use_uia, settle_s
 
         self.t0 = 0.0
         self.stop_event = threading.Event()
-        self.lock = threading.Lock()
-        self.events_file = open(out_dir / "events.jsonl", "w", encoding="utf-8")
-        self.shot_queue: queue.Queue[tuple[float, str] | None] = queue.Queue()
-        self.held_mods: set[str] = set()
-        self.audio_chunks: list[np.ndarray] = []
-        self.audio_error: str | None = None
-        self.audio_offset = 0.0  # seconds between t0 and first audio sample
-        self.screen = {"w": 0, "h": 0, "left": 0, "top": 0}
+        self.capture_stop = threading.Event()
+        self.paused = False
+        self.pauses: list[list[float]] = []
+        self.excluded: list[tuple[int, int, int, int]] = []
+        self.inbox: queue.Queue = queue.Queue()
+        self.ring: deque[Frame] = deque(maxlen=RING_SIZE)
+        self.ring_lock = threading.Lock()
+        self.state_lock = threading.Lock()
+        self.last_class: str | None = None
+        self.last_input_t = -1e9
+        self.settle_pending = False
+        self.held: set[str] = set()
+        self.shift = False
+        self.burst_focus_rid: int | None = None
         self.n_events = 0
+        self.n_masked = 0
+        self.grab_errors = 0
+        self.frames_captured = 0
+        self.errors: list[str] = []
+        self.screen = {"w": 0, "h": 0, "left": 0, "top": 0}
+        self.end_frame_seq: int | None = None
+        self.stills = StillWriter(out_dir, self.now)
+        self.video = VideoWriter(out_dir, fps) if video else None
+        self.audio = AudioCapture(out_dir, self.now, device, lambda: self.paused) if audio else None
+        self.uia = None
 
-    # ---- helpers -------------------------------------------------------
+    # ---- clock & helpers --------------------------------------------------
     def now(self) -> float:
-        return round(time.perf_counter() - self.t0, 3)
-
-    def emit(self, event: dict) -> None:
-        with self.lock:
-            self.events_file.write(json.dumps(event) + "\n")
-            self.events_file.flush()
-            self.n_events += 1
+        return time.perf_counter() - self.t0
 
     def is_excluded(self, x: int, y: int) -> bool:
         return any(rx <= x < rx + rw and ry <= y < ry + rh for rx, ry, rw, rh in self.excluded)
+
+    def latest_frame_before(self, t: float) -> Frame | None:
+        with self.ring_lock:
+            for f in reversed(self.ring):
+                if f.t1 <= t:
+                    return f
+        return None
+
+    # ---- commands ------------------------------------------------------------
+    def set_paused(self, value: bool) -> None:
+        if value == self.paused or self.stop_event.is_set():
+            return
+        t = round(self.now(), 4)
+        self.paused = value
+        if value:
+            self.pauses.append([t, None])
+        elif self.pauses:
+            self.pauses[-1][1] = t
+        self.inbox.put({"t": t, "type": "marker", "name": "pause" if value else "resume"})
+        say("paused" if value else "resumed", "Paused (F8 to resume)." if value else "Resumed.", t=t)
 
     def read_commands(self) -> None:
         """--json mode: the desktop app controls us over stdin."""
@@ -150,175 +467,337 @@ class Recorder:
                 cmd = json.loads(line) if line.startswith("{") else {"cmd": line}
             except json.JSONDecodeError:
                 continue
-            if cmd.get("cmd") == "stop":
+            c = cmd.get("cmd")
+            if c == "stop":
                 self.stop_event.set()
-            elif cmd.get("cmd") == "exclude" and len(cmd.get("rect", [])) == 4:
+            elif c in ("pause", "resume"):
+                self.set_paused(c == "pause")
+            elif c == "exclude" and len(cmd.get("rect", [])) == 4:
                 self.excluded.append(tuple(int(v) for v in cmd["rect"]))
         self.stop_event.set()  # app went away: stop cleanly rather than record forever
 
-    def request_shot(self, t: float) -> str:
-        name = f"frames/{int(t * 1000):09d}.png"
-        self.shot_queue.put((t, name))
-        return name
+    # ---- input hooks (keep these cheap: timestamp, pick a still, enqueue) --------
+    def _accept(self) -> bool:
+        return not (self.stop_event.is_set() or self.paused)
 
-    # ---- screenshot worker (mss handles are per-thread) -----------------
-    def screenshot_worker(self) -> None:
-        with (mss.MSS() if hasattr(mss, "MSS") else mss.mss()) as sct:
-            mon = sct.monitors[self.monitor_idx]
-            self.screen = {"w": mon["width"], "h": mon["height"],
-                           "left": mon["left"], "top": mon["top"]}
-            while True:
-                item = self.shot_queue.get()
-                if item is None:
-                    return
-                _, name = item
-                path = self.out / name
-                if path.exists():  # two triggers in the same millisecond
-                    continue
-                img = sct.grab(mon)
-                mss.tools.to_png(img.rgb, img.size, output=str(path))
+    def _input(self, ev: dict, cls: str, force_candidate: bool = False) -> None:
+        t = self.now()
+        ev["t"] = round(t, 4)
+        with self.state_lock:
+            candidate = (force_candidate or cls == "click" or cls != self.last_class
+                         or t - self.last_input_t > CANDIDATE_GAP_S)
+            burst_start = cls == "key" and (cls != self.last_class or t - self.last_input_t > CANDIDATE_GAP_S)
+            self.last_class, self.last_input_t = cls, t
+            self.settle_pending = True
+        if candidate:
+            ev["before_seq"] = self.stills.request(self.latest_frame_before(t), "before", t)
+        if self.uia is not None:
+            if cls == "click":
+                ev["_uia"] = self.uia.submit("point", t, ev["x"], ev["y"])
+                self.burst_focus_rid = None  # a click may move focus; re-check on next typing
+            elif burst_start or self.burst_focus_rid is None and cls == "key":
+                self.burst_focus_rid = self.uia.submit("focus", t)
+            if cls == "key":
+                ev["_focus"] = self.burst_focus_rid
+        self.inbox.put(ev)
 
-    # ---- audio ------------------------------------------------------------
-    def start_audio(self):
-        if not self.want_audio:
-            return None
-        try:
-            import sounddevice as sd
-
-            def callback(indata, frames, time_info, status):
-                self.audio_chunks.append(indata.copy())
-                self.level = rms_level(indata)
-
-            stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, device=self.device,
-                                    dtype="int16", callback=callback)
-            stream.start()
-            self.audio_offset = round(time.perf_counter() - self.t0, 3)
-            return stream
-        except Exception as e:  # no mic, driver issue, missing PortAudio
-            self.audio_error = f"{type(e).__name__}: {e}"
-            say("warning", f"[warn] audio disabled: {self.audio_error}", message=self.audio_error)
-            return None
-
-    def save_audio(self) -> bool:
-        if not self.audio_chunks:
-            return False
-        data = np.concatenate(self.audio_chunks)
-        with wave.open(str(self.out / "audio.wav"), "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(SAMPLE_RATE)
-            w.writeframes(data.tobytes())
+    def mouse_filter(self, msg, data):
+        """Raw wheel deltas (pynput floor-divides them by 120, losing touchpad scrolls)."""
+        if msg in (WM_MOUSEWHEEL, WM_MOUSEHWHEEL):
+            if self._accept() and not self.is_excluded(data.pt.x, data.pt.y):
+                raw = ctypes.c_short((data.mouseData >> 16) & 0xFFFF).value
+                horizontal = msg == WM_MOUSEHWHEEL
+                ev = {"type": "scroll", "x": int(data.pt.x), "y": int(data.pt.y), "raw": raw,
+                      "dx": raw / WHEEL_DELTA if horizontal else 0.0,
+                      "dy": 0.0 if horizontal else raw / WHEEL_DELTA,
+                      "unit": "notch", "injected": bool(data.flags & LLMHF_INJECTED_ANY)}
+                if self.held:
+                    ev["mods"] = sorted(self.held | ({"shift"} if self.shift else set()))
+                self._input(ev, "scroll")
+            return False  # handled here; skip pynput's own on_scroll
         return True
 
-    # ---- input callbacks --------------------------------------------------
-    def on_click(self, x, y, button, pressed):
-        if not pressed or self.stop_event.is_set() or self.is_excluded(x, y):
-            return
-        t = self.now()
-        frame = self.request_shot(t)
-        self.emit({"t": t, "type": "click", "x": int(x), "y": int(y),
-                   "button": button.name, "frame": frame})
+    def on_scroll(self, x, y, dx, dy, injected=False):  # non-Windows fallback
+        if self._accept() and not self.is_excluded(x, y):
+            self._input({"type": "scroll", "x": int(x), "y": int(y), "dx": float(dx), "dy": float(dy),
+                         "unit": "notch", "injected": bool(injected)}, "scroll")
 
-    def on_scroll(self, x, y, dx, dy):
-        if self.stop_event.is_set() or self.is_excluded(x, y):
+    def on_click(self, x, y, button, pressed, injected=False):
+        if not pressed or not self._accept() or self.is_excluded(x, y):
             return
-        self.emit({"t": self.now(), "type": "scroll", "x": int(x), "y": int(y),
-                   "dx": int(dx), "dy": int(dy)})
+        ev = {"type": "click", "x": int(x), "y": int(y), "button": button.name, "injected": bool(injected)}
+        if self.held or self.shift:
+            ev["mods"] = sorted(self.held | ({"shift"} if self.shift else set()))
+        self._input(ev, "click")
 
-    def key_name(self, key) -> str:
+    @staticmethod
+    def key_name(key) -> tuple[str, bool]:
+        """(name, printable). Printable keys are single characters."""
         if isinstance(key, keyboard.KeyCode):
             if key.char and key.char.isprintable():
-                return key.char
+                return key.char, True
             # With Ctrl held, Windows reports control chars (ctrl+c -> '\x03').
             if key.vk is not None and 0x30 <= key.vk <= 0x5A:
-                return chr(key.vk).lower()
-            return f"vk{key.vk}" if key.vk is not None else "?"
+                return chr(key.vk).lower(), True
+            return (f"vk{key.vk}" if key.vk is not None else "?"), False
         if key == keyboard.Key.space:
-            return " "  # so typed text reads naturally downstream
-        return key.name  # e.g. 'enter', 'tab', 'backspace'
+            return " ", True
+        return key.name, False
 
-    def on_press(self, key):
+    def on_press(self, key, injected=False):
         if key == STOP_KEY:
             self.stop_event.set()
             return False  # stops the keyboard listener
-        if self.stop_event.is_set():
+        if key == PAUSE_KEY:
+            self.set_paused(not self.paused)
             return
         if key in MODIFIERS:
-            self.held_mods.add(key.name.split("_")[0])
+            self.held.add(MODIFIERS[key])
             return
         if key in SHIFTS:
-            return  # shift is already reflected in the character
-        t = self.now()
-        name = self.key_name(key)
-        event = {"t": t, "type": "key", "key": name}
-        if self.held_mods:
-            event["mods"] = sorted(self.held_mods)
-        if name in ("enter", "tab"):
-            event["frame"] = self.request_shot(t)
-        self.emit(event)
+            self.shift = True
+            return  # shift is reflected in the character, or added to special keys below
+        if not self._accept():
+            return
+        name, printable = self.key_name(key)
+        ev = {"type": "key", "key": name, "injected": bool(injected)}
+        mods = set(self.held)
+        if self.shift and not printable:
+            mods.add("shift")
+        if mods:
+            ev["mods"] = sorted(mods)
+        self._input(ev, "key", force_candidate=bool(mods) or name in ("enter", "tab"))
 
-    def on_release(self, key):
+    def on_release(self, key, injected=False):
         if key in MODIFIERS:
-            self.held_mods.discard(key.name.split("_")[0])
+            self.held.discard(MODIFIERS[key])
+        elif key in SHIFTS:
+            self.shift = False
 
-    # ---- main --------------------------------------------------------------
+    # ---- writer: context, UIA answers, masking, ordering ------------------------
+    def writer_loop(self) -> None:
+        events = open(self.out / "events.jsonl", "w", encoding="utf-8")
+        focus_cache: dict[int, dict] = {}
+        password_field = False  # last click landed in a password field
+        seq = 0
+        while True:
+            ev = self.inbox.get()
+            if ev is None:
+                break
+            try:
+                ev["seq"] = seq
+                seq += 1
+                kind = ev["type"]
+                if kind in ("click", "key"):
+                    win = winctx.foreground_window()
+                elif kind == "scroll":
+                    win = winctx.window_at(ev["x"], ev["y"])
+                else:
+                    win = None
+                if win:
+                    ev["window"] = win
+                rid = ev.pop("_uia", None)
+                if rid is not None:
+                    ev["target"] = self.uia.result(rid, UIA_WAIT_S)
+                    password_field = bool(ev["target"].get("is_password"))
+                frid = ev.pop("_focus", None)
+                if kind == "key":
+                    focus = None
+                    if frid is not None:
+                        if frid not in focus_cache:
+                            focus_cache[frid] = self.uia.result(frid, UIA_WAIT_S)
+                            if len(focus_cache) > 64:
+                                focus_cache.pop(next(iter(focus_cache)))
+                        focus = focus_cache[frid]
+                    if focus and focus.get("status") == "ok":
+                        is_pw = bool(focus.get("is_password"))
+                        ev["focus"] = {k: focus.get(k) for k in ("role", "name", "is_password", "status")}
+                    else:
+                        is_pw = password_field
+                        if focus:
+                            ev["focus"] = {"status": focus.get("status")}
+                    if is_pw and len(ev["key"]) == 1:
+                        ev["key"] = "•"
+                        ev["masked"] = True
+                        ev["mask_reason"] = "password field (UI Automation IsPassword)"
+                        self.n_masked += 1
+                events.write(json.dumps(ev) + "\n")
+                events.flush()
+                self.n_events += 1
+            except Exception as e:  # never lose the rest of the stream over one event
+                self.errors.append(f"writer: {type(e).__name__}: {e}")
+        events.close()
+
+    # ---- screen capture ------------------------------------------------------------
+    def capture_loop(self) -> None:
+        period = 1.0 / self.fps
+        consecutive_errors = 0
+        try:
+            sct = _mss()
+        except Exception as e:
+            self.errors.append(f"capture init: {e}")
+            return
+        with sct:
+            mon = sct.monitors[self.monitor_idx]
+            self.screen = {"w": mon["width"], "h": mon["height"], "left": mon["left"], "top": mon["top"]}
+            seq = 0
+
+            def grab() -> Frame | None:
+                nonlocal seq, consecutive_errors
+                t0 = self.now()
+                try:
+                    img = sct.grab(mon)
+                except Exception as e:
+                    self.grab_errors += 1
+                    consecutive_errors += 1
+                    if consecutive_errors in (1, 20):
+                        self.errors.append(f"grab: {type(e).__name__}: {e}")
+                    return None
+                consecutive_errors = 0
+                f = Frame(seq, t0, self.now(), img.bgra, img.width, img.height)
+                seq += 1
+                self.frames_captured += 1
+                with self.ring_lock:
+                    self.ring.append(f)
+                if self.video is not None:
+                    self.video.offer(f)
+                return f
+
+            first = grab()
+            if first is not None:
+                self.stills.request(first, "start", first.t0)
+            next_t = self.now() + period
+            while not self.capture_stop.is_set():
+                delay = next_t - self.now()
+                if delay > 0 and self.capture_stop.wait(delay):
+                    break
+                next_t += period
+                if next_t < self.now():
+                    next_t = self.now() + period  # fell behind: skip ticks, don't burst
+                if self.paused:
+                    continue
+                f = grab()
+                if f is None:
+                    continue
+                with self.state_lock:
+                    settle_ref = None
+                    if self.settle_pending and f.t0 - self.last_input_t >= self.settle_s:
+                        self.settle_pending = False
+                        settle_ref = self.last_input_t
+                if settle_ref is not None:
+                    self.stills.request(f, "settled", settle_ref)
+            # Final state after the last action: grabbed after stop, never before it.
+            end = grab()
+            if end is not None:
+                self.stills.request(end, "end", end.t0)
+                self.end_frame_seq = end.seq
+
+    # ---- main --------------------------------------------------------------------------
     def run(self) -> None:
         self.t0 = time.perf_counter()
-        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        started_wall = datetime.now().astimezone()
+        if self.use_uia and sys.platform == "win32":
+            from uia import UIAWorker
 
-        shooter = threading.Thread(target=self.screenshot_worker, daemon=True)
-        shooter.start()
-        stream = self.start_audio()
-        self.emit({"t": 0.0, "type": "marker", "name": "start",
-                   "frame": self.request_shot(0.0)})
+            self.uia = UIAWorker(self.now)
+            self.uia.start()
+            self.uia.ready.wait(5)
+        self.stills.start()
+        if self.video is not None:
+            self.video.start()
+        writer = threading.Thread(target=self.writer_loop, daemon=True, name="writer")
+        writer.start()
+        capture = threading.Thread(target=self.capture_loop, daemon=True, name="capture")
+        capture.start()
+        has_audio = self.audio.start() if self.audio is not None else False
+        self.inbox.put({"t": 0.0, "type": "marker", "name": "start"})
 
-        m = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll)
+        m = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll,
+                           win32_event_filter=self.mouse_filter)
         k = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         m.start()
         k.start()
         if JSON_MODE:
             threading.Thread(target=self.read_commands, daemon=True).start()
-        say("started", "Recording. Narrate what you're doing and why. Press F9 to stop.",
+        say("started", "Recording. Narrate what you're doing and why. F8 pauses, F9 stops.",
             dir=str(self.out.resolve()), session_id=self.out.name)
         try:
             while not self.stop_event.wait(0.25):
-                say("status", t=self.now(), events=self.n_events, level=self.level)
+                say("status", t=round(self.now(), 2), events=self.n_events, paused=self.paused,
+                    level=self.audio.level if self.audio else 0.0,
+                    video_dropped=self.video.dropped if self.video else 0)
         except KeyboardInterrupt:
             self.stop_event.set()
 
-        t_end = self.now()
+        t_end = round(self.now(), 4)
+        if self.paused and self.pauses:
+            self.pauses[-1][1] = t_end
         say("stopping", t=t_end)
-        self.emit({"t": t_end, "type": "marker", "name": "end",
-                   "frame": self.request_shot(t_end)})
         m.stop()
         k.stop()
-        if stream is not None:
-            stream.stop()
-            stream.close()
-        self.shot_queue.put(None)
-        shooter.join(timeout=10)
-        self.events_file.close()
-        has_audio = self.save_audio()
+        self.capture_stop.set()
+        capture.join(timeout=10)
+        self.inbox.put({"t": t_end, "type": "marker", "name": "end", "end_seq": self.end_frame_seq})
+        self.inbox.put(None)
+        writer.join(timeout=30)
+        if self.uia is not None:
+            self.uia.stop()
+        if self.video is not None:
+            self.video.q.put(None)
+            self.video.join(timeout=60)
+        self.stills.q.put(None)
+        self.stills.join(timeout=60)
+        if self.audio is not None:
+            self.audio.stop()
 
+        dpi = winctx.monitor_scale(self.screen["left"] + 1, self.screen["top"] + 1)
         meta = {
+            "schema": SESSION_SCHEMA,
             "session_id": self.out.name,
             "task": self.task,
             "success_criteria": self.criteria,
-            "started_at": started_at,
+            "started_at": started_wall.isoformat(timespec="seconds"),
             "duration_s": t_end,
+            "clock": {"source": "time.perf_counter", "unit": "s",
+                      "origin": "recording start (t0)", "t0_perf_counter": round(self.t0, 6)},
             "screen": self.screen,
-            "audio": {"file": "audio.wav" if has_audio else None,
-                      "sample_rate": SAMPLE_RATE, "offset_s": self.audio_offset,
-                      "error": self.audio_error},
+            "coordinate_space": {
+                "space": "physical screen pixels (per-monitor DPI aware)",
+                "frame_origin": [self.screen["left"], self.screen["top"]],
+                "frame_size": [self.screen["w"], self.screen["h"]],
+                "monitor_index": self.monitor_idx,
+                "monitor_dpi_scale": dpi,
+                "process_dpi_awareness": winctx.process_dpi_awareness(),
+                "note": "event x/y are screen coordinates; subtract frame_origin for frame pixels",
+            },
+            "capture": {"fps": self.fps, "frames": self.frames_captured, "grab_errors": self.grab_errors,
+                        "settle_s": self.settle_s, "candidate_gap_s": CANDIDATE_GAP_S,
+                        "ring_size": RING_SIZE, "double_click_time_s": winctx.double_click_time_s()},
+            "stills": {"index": "frames/stills.jsonl", "saved": self.stills.saved,
+                       "failed": self.stills.failed, "dropped": self.stills.dropped},
+            "video": ({"file": "screen.mkv" if self.video.frames else None, "codec": self.video.codec,
+                       "frames": self.video.frames, "dropped": self.video.dropped,
+                       "index": "video_frames.jsonl", "pts": "capture midpoint, ms on recording clock",
+                       "error": self.video.error} if self.video else {"file": None, "error": "disabled"}),
+            "audio": (self.audio.meta() if self.audio else
+                      {"file": None, "sample_rate": SAMPLE_RATE, "offset_s": None, "error": "disabled"}),
+            "uia": {"enabled": self.uia is not None,
+                    "available": getattr(self.uia, "available", None),
+                    "error": getattr(self.uia, "error", None)},
+            "input": {"events": self.n_events, "masked_keys": self.n_masked, "pauses": self.pauses,
+                      "hotkeys": {"stop": "F9", "pause": "F8"}},
+            "errors": self.errors,
             "platform": platform.platform(),
             "recorder_version": RECORDER_VERSION,
         }
         (self.out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        n_frames = len(list(self.frames_dir.glob("*.png")))
         say("saved", f"Saved {self.out}  ({t_end:.1f}s, {self.n_events} events, "
-            f"{n_frames} frames, audio={'yes' if has_audio else 'no'})",
+            f"{self.stills.saved} stills, {self.video.frames if self.video else 0} video frames, "
+            f"audio={'yes' if has_audio else 'no'})",
             dir=str(self.out.resolve()), session_id=self.out.name, duration_s=t_end,
-            events=self.n_events, frames=n_frames, audio=has_audio)
+            events=self.n_events, frames=self.stills.saved,
+            video_frames=self.video.frames if self.video else 0, audio=has_audio,
+            errors=self.errors)
 
 
 def run_meter(device: int | None) -> None:
@@ -354,6 +833,11 @@ def main(argv=None) -> None:
     p.add_argument("--criteria", help="What 'done' looks like (asked if omitted)")
     p.add_argument("--out", default="sessions", help="Parent folder for sessions")
     p.add_argument("--no-audio", action="store_true", help="Skip microphone capture")
+    p.add_argument("--no-video", action="store_true", help="Skip the screen video")
+    p.add_argument("--no-uia", action="store_true", help="Skip UI Automation target lookups")
+    p.add_argument("--fps", type=float, default=DEFAULT_FPS, help="Screen capture rate (default 4)")
+    p.add_argument("--settle", type=float, default=DEFAULT_SETTLE_S,
+                   help="Quiet seconds before a 'settled' screenshot (default 0.6)")
     p.add_argument("--monitor", type=int, default=1,
                    help="mss monitor index (1 = primary, 0 = all monitors)")
     p.add_argument("--countdown", type=int, default=3, help="Seconds before recording starts")
@@ -373,7 +857,8 @@ def main(argv=None) -> None:
         return
     if JSON_MODE and (args.task is None or args.criteria is None):
         p.error("--json needs --task and --criteria")
-
+    if not 0.5 <= args.fps <= 30:
+        p.error("--fps must be between 0.5 and 30")
     task = args.task if args.task is not None else input("Task: ").strip()
     criteria = (args.criteria if args.criteria is not None
                 else input("Done when: ").strip())
@@ -384,7 +869,8 @@ def main(argv=None) -> None:
         say("countdown", f"Starting in {i}...", n=i)
         time.sleep(1)
     Recorder(out, task, criteria, audio=not args.no_audio, monitor=args.monitor,
-             device=args.device).run()
+             device=args.device, fps=args.fps, video=not args.no_video,
+             use_uia=not args.no_uia, settle_s=args.settle).run()
 
 
 if __name__ == "__main__":

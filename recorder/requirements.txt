@@ -1,3 +1,5 @@
+av==18.1.0
+comtypes==1.4.17; sys_platform == "win32"
 mss==10.2.0
 numpy==2.5.3
 pynput==1.8.2

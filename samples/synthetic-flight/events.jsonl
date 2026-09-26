@@ -1,57 +1,57 @@
-{"t": 0.0, "type": "marker", "name": "start", "frame": "frames/000000000.png"}
-{"t": 4.1, "type": "click", "x": 290, "y": 293, "button": "left", "frame": "frames/000004100.png"}
-{"t": 4.6, "type": "key", "key": "z"}
-{"t": 4.69, "type": "key", "key": "a"}
-{"t": 4.78, "type": "key", "key": "i"}
-{"t": 4.87, "type": "key", "key": "n"}
-{"t": 4.96, "type": "key", "key": "."}
-{"t": 5.05, "type": "key", "key": "d"}
-{"t": 5.14, "type": "key", "key": "e"}
-{"t": 5.23, "type": "key", "key": "m"}
-{"t": 5.32, "type": "key", "key": "o"}
-{"t": 5.41, "type": "key", "key": "@"}
-{"t": 5.5, "type": "key", "key": "e"}
-{"t": 5.59, "type": "key", "key": "x"}
-{"t": 5.68, "type": "key", "key": "a"}
-{"t": 5.77, "type": "key", "key": "m"}
-{"t": 5.86, "type": "key", "key": "p"}
-{"t": 5.95, "type": "key", "key": "l"}
-{"t": 6.04, "type": "key", "key": "e"}
-{"t": 6.13, "type": "key", "key": "."}
-{"t": 6.22, "type": "key", "key": "c"}
-{"t": 6.31, "type": "key", "key": "o"}
-{"t": 6.4, "type": "key", "key": "m"}
-{"t": 7.4, "type": "click", "x": 290, "y": 393, "button": "left", "frame": "frames/000007400.png"}
-{"t": 7.8, "type": "key", "key": "T"}
-{"t": 7.89, "type": "key", "key": "r"}
-{"t": 7.98, "type": "key", "key": "4"}
-{"t": 8.07, "type": "key", "key": "v"}
-{"t": 8.16, "type": "key", "key": "e"}
-{"t": 8.25, "type": "key", "key": "l"}
-{"t": 8.34, "type": "key", "key": "!"}
-{"t": 8.43, "type": "key", "key": "2"}
-{"t": 8.52, "type": "key", "key": "0"}
-{"t": 8.61, "type": "key", "key": "2"}
-{"t": 8.7, "type": "key", "key": "6"}
-{"t": 8.79, "type": "key", "key": "x"}
-{"t": 9.6, "type": "key", "key": "enter", "frame": "frames/000009600.png"}
-{"t": 13.6, "type": "click", "x": 230, "y": 293, "button": "left", "frame": "frames/000013600.png"}
-{"t": 14.0, "type": "key", "key": "Y"}
-{"t": 14.09, "type": "key", "key": "Y"}
-{"t": 14.18, "type": "key", "key": "Z"}
-{"t": 15.4, "type": "click", "x": 550, "y": 293, "button": "left", "frame": "frames/000015400.png"}
-{"t": 15.8, "type": "key", "key": "S"}
-{"t": 15.89, "type": "key", "key": "F"}
-{"t": 15.98, "type": "key", "key": "O"}
-{"t": 17.3, "type": "click", "x": 850, "y": 293, "button": "left", "frame": "frames/000017300.png"}
-{"t": 19.2, "type": "click", "x": 1080, "y": 293, "button": "left", "frame": "frames/000019200.png"}
-{"t": 24.9, "type": "click", "x": 1350, "y": 192, "button": "left", "frame": "frames/000024900.png"}
-{"t": 26.1, "type": "click", "x": 1300, "y": 283, "button": "left", "frame": "frames/000026100.png"}
-{"t": 27.4, "type": "scroll", "x": 800, "y": 600, "dx": 0, "dy": -2}
-{"t": 27.9, "type": "scroll", "x": 800, "y": 600, "dx": 0, "dy": -3}
-{"t": 28.5, "type": "scroll", "x": 800, "y": 600, "dx": 0, "dy": 2}
-{"t": 35.2, "type": "click", "x": 200, "y": 270, "button": "left", "frame": "frames/000035200.png"}
-{"t": 38.4, "type": "click", "x": 700, "y": 368, "button": "left", "frame": "frames/000038400.png"}
-{"t": 62.0, "type": "click", "x": 1320, "y": 368, "button": "left", "frame": "frames/000062000.png"}
-{"t": 65.6, "type": "click", "x": 1100, "y": 368, "button": "left", "frame": "frames/000065600.png"}
-{"t": 71.5, "type": "marker", "name": "end", "frame": "frames/000071500.png"}
+{"t": 0.0, "type": "marker", "name": "start", "seq": 0}
+{"t": 4.1, "type": "click", "x": 290, "y": 293, "button": "left", "target": {"status": "ok", "role": "edit", "control_type_id": null, "name": "Email", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [80, 268, 420, 50], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/signin", "source": "uia", "lookup_started_t": 4.102, "lookup_done_t": 4.114, "latency_ms": 14.0}, "seq": 1, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 15}
+{"t": 4.6, "type": "key", "key": "z", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 2, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 17}
+{"t": 4.69, "type": "key", "key": "a", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 3, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 4.78, "type": "key", "key": "i", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 4, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 4.87, "type": "key", "key": "n", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 5, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 4.96, "type": "key", "key": ".", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 6, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.05, "type": "key", "key": "d", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 7, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.14, "type": "key", "key": "e", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 8, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.23, "type": "key", "key": "m", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 9, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.32, "type": "key", "key": "o", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 10, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.41, "type": "key", "key": "@", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 11, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.5, "type": "key", "key": "e", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 12, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.59, "type": "key", "key": "x", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 13, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.68, "type": "key", "key": "a", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 14, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.77, "type": "key", "key": "m", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 15, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.86, "type": "key", "key": "p", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 16, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 5.95, "type": "key", "key": "l", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 17, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 6.04, "type": "key", "key": "e", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 18, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 6.13, "type": "key", "key": ".", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 19, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 6.22, "type": "key", "key": "c", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 20, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 6.31, "type": "key", "key": "o", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 21, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 6.4, "type": "key", "key": "m", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 22, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 7.4, "type": "click", "x": 290, "y": 393, "button": "left", "target": {"status": "ok", "role": "edit", "control_type_id": null, "name": "Password", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [80, 368, 420, 50], "is_password": true, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/signin", "source": "uia", "lookup_started_t": 7.402, "lookup_done_t": 7.414, "latency_ms": 14.0}, "seq": 23, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 29}
+{"t": 7.8, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 24, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 30}
+{"t": 7.89, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 25, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 7.98, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 26, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.07, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 27, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.16, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 28, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.25, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 29, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.34, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 30, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.43, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 31, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.52, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 32, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.61, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 33, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.7, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 34, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 8.79, "type": "key", "key": "\u2022", "masked": true, "mask_reason": "password field (UI Automation IsPassword)", "focus": {"role": "edit", "name": "Password", "is_password": true, "status": "ok"}, "seq": 35, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 9.6, "type": "key", "key": "enter", "seq": 36, "injected": false, "window": {"hwnd": 172302, "title": "Sign in - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 37}
+{"t": 13.6, "type": "click", "x": 230, "y": 293, "button": "left", "target": {"status": "ok", "role": "combobox", "control_type_id": null, "name": "From", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [80, 268, 300, 50], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/", "source": "uia", "lookup_started_t": 13.602, "lookup_done_t": 13.614, "latency_ms": 14.0}, "seq": 37, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 53}
+{"t": 14.0, "type": "key", "key": "Y", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 38, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 55}
+{"t": 14.09, "type": "key", "key": "Y", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 39, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 14.18, "type": "key", "key": "Z", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 40, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 14.2, "type": "key", "key": "tab", "seq": 41, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 56}
+{"t": 15.8, "type": "key", "key": "S", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 42, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 62}
+{"t": 15.89, "type": "key", "key": "F", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 43, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 15.98, "type": "key", "key": "O", "focus": {"role": "edit", "name": "", "is_password": false, "status": "ok"}, "seq": 44, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 17.3, "type": "click", "x": 850, "y": 293, "button": "left", "target": {"status": "ok", "role": "combobox", "control_type_id": null, "name": "Depart", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [720, 268, 260, 50], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/", "source": "uia", "lookup_started_t": 17.302, "lookup_done_t": 17.314, "latency_ms": 14.0}, "seq": 45, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 68}
+{"t": 19.2, "type": "click", "x": 1080, "y": 293, "button": "left", "target": {"status": "ok", "role": "button", "control_type_id": null, "name": "Search", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [1000, 268, 160, 50], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/", "source": "uia", "lookup_started_t": 19.202, "lookup_done_t": 19.214, "latency_ms": 14.0}, "seq": 46, "injected": false, "window": {"hwnd": 172302, "title": "Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 76}
+{"t": 24.9, "type": "click", "x": 1350, "y": 192, "button": "left", "target": {"status": "ok", "role": "combobox", "control_type_id": null, "name": "Sort: Recommended", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [1180, 170, 340, 44], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17", "source": "uia", "lookup_started_t": 24.902, "lookup_done_t": 24.914, "latency_ms": 14.0}, "seq": 47, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 99}
+{"t": 26.1, "type": "click", "x": 1300, "y": 283, "button": "left", "target": {"status": "ok", "role": "list item", "control_type_id": null, "name": "Price: low to high", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [1180, 256, 340, 38], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17", "source": "uia", "lookup_started_t": 26.102, "lookup_done_t": 26.114, "latency_ms": 14.0}, "seq": 48, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 103}
+{"t": 27.4, "type": "scroll", "x": 800, "y": 600, "raw": -240, "dx": 0.0, "dy": -2.0, "unit": "notch", "seq": 49, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 109}
+{"t": 27.9, "type": "scroll", "x": 800, "y": 600, "raw": -360, "dx": 0.0, "dy": -3.0, "unit": "notch", "seq": 50, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}}
+{"t": 29.7, "type": "scroll", "x": 800, "y": 600, "raw": 120, "dx": 0.0, "dy": 1.0, "unit": "notch", "seq": 51, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 118}
+{"t": 35.2, "type": "click", "x": 200, "y": 270, "button": "left", "target": {"status": "ok", "role": "checkbox", "control_type_id": null, "name": "Nonstop only", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [80, 250, 250, 40], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17", "source": "uia", "lookup_started_t": 35.202, "lookup_done_t": 35.214, "latency_ms": 14.0}, "seq": 52, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 140}
+{"t": 38.4, "type": "click", "x": 700, "y": 368, "button": "left", "target": {"status": "ok", "role": "list item", "control_type_id": null, "name": "Air Canada 8:30 to 11:02, nonstop, $312", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [80, 320, 1440, 96], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17", "source": "uia", "lookup_started_t": 38.402, "lookup_done_t": 38.414, "latency_ms": 14.0}, "seq": 53, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 153}
+{"t": 62.0, "type": "click", "x": 1270, "y": 368, "button": "left", "target": {"status": "ok", "role": "link", "control_type_id": null, "name": "Details", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [1240, 356, 64, 22], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17", "source": "uia", "lookup_started_t": 62.002, "lookup_done_t": 62.014, "latency_ms": 14.0}, "seq": 54, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 247}
+{"t": 65.6, "type": "click", "x": 1110, "y": 368, "button": "left", "target": {"status": "ok", "role": "button", "control_type_id": null, "name": "Select", "automation_id": "", "class_name": "", "framework": "Chrome", "rect": [1040, 343, 140, 50], "is_password": false, "pid": 4242, "hit": null, "url_status": "ok", "url": "https://farefinder.example/flights?from=YYZ&to=SFO&date=2026-10-17", "source": "uia", "lookup_started_t": 65.602, "lookup_done_t": 65.614, "latency_ms": 14.0}, "seq": 55, "injected": false, "window": {"hwnd": 172302, "title": "YYZ to SFO - Farefinder - Google Chrome", "process": "chrome.exe", "pid": 4242}, "before_seq": 261}
+{"t": 71.5, "type": "marker", "name": "end", "seq": 56}

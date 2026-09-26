@@ -1,0 +1,21 @@
+{
+  "session_id": "synthetic-flight",
+  "task": "Find and select the cheapest nonstop flight from Toronto (YYZ) to San Francisco (SFO) on Oct 17.",
+  "success_criteria": "Checkout page shows the cheapest nonstop YYZ-SFO flight on Oct 17.",
+  "started_at": "2026-09-26T10:00:00-04:00",
+  "duration_s": 71.5,
+  "screen": {
+    "w": 1600,
+    "h": 900,
+    "left": 0,
+    "top": 0
+  },
+  "audio": {
+    "file": null,
+    "sample_rate": 16000,
+    "offset_s": 0.0,
+    "error": null
+  },
+  "platform": "synthetic",
+  "recorder_version": "synthetic"
+}
