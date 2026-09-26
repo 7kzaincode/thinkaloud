@@ -102,7 +102,10 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
           <div className="eyebrow">thinkaloud · recordings</div>
           <h1>Recordings</h1>
         </div>
-        <Link href="/record" className="btn primary big">New recording</Link>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Link href="/settings" className="btn big">Settings</Link>
+          <Link href="/record" className="btn primary big">New recording</Link>
+        </div>
       </div>
       <p className="lede">
         Each recording is one expert doing one task while narrating. Process it, step through what they did and why,
@@ -170,8 +173,7 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
                 <tr key={s.id} className={selected.has(s.id) ? "sel" : ""}>
                   <td><input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.id}`} /></td>
                   <td>
-                    {s.processed ? <Link href={`/s/${encodeURIComponent(s.id)}`} className="task">{s.task || <em>Untitled task</em>}</Link>
-                      : <span className="task">{s.task || <em>Untitled task</em>}</span>}
+                    <Link href={`/s/${encodeURIComponent(s.id)}`} className="task">{s.task || <em>Untitled task</em>}</Link>
                     <div className="mono faint">{s.id}{s.duration_s != null ? ` · ${fmtTime(s.duration_s)}` : ""}</div>
                   </td>
                   <td><span className={`status ${st.cls}`}>{st.label}</span>

@@ -7,7 +7,7 @@ import { desktop, type Device } from "@/lib/desktop";
 
 type Phase =
   | { kind: "setup" }
-  | { kind: "recording"; t: number; events: number; countdown?: number }
+  | { kind: "recording"; t: number; events: number; countdown?: number; paused?: boolean }
   | { kind: "processing"; message: string }
   | { kind: "error"; message: string };
 
@@ -58,7 +58,9 @@ export default function RecordPage() {
       bridge.onRecorder((e) => {
         if (e.event === "countdown") setPhase({ kind: "recording", t: 0, events: 0, countdown: Number(e.n) });
         if (e.event === "started" || e.event === "status")
-          setPhase({ kind: "recording", t: Number(e.t ?? 0), events: Number(e.events ?? 0) });
+          setPhase({ kind: "recording", t: Number(e.t ?? 0), events: Number(e.events ?? 0), paused: !!e.paused });
+        if (e.event === "paused" || e.event === "resumed")
+          setPhase((p) => (p.kind === "recording" ? { ...p, paused: e.event === "paused" } : p));
         if (e.event === "error") setPhase({ kind: "error", message: String(e.message) });
       }),
       bridge.onProcess((e) => {
@@ -156,18 +158,23 @@ export default function RecordPage() {
           <ul className="tips">
             <li><b>Say it before you do it.</b> &ldquo;I&apos;m sorting by price because the default is sponsored.&rdquo;</li>
             <li><b>Explain choices, not clicks.</b> Why this option and not the others?</li>
-            <li><b>Avoid real passwords.</b> Likely secrets are redacted, but only what we can detect.</li>
+            <li><b>Pause for anything private.</b> F8 or the Pause button stops all capture until you resume.</li>
+            <li><b>Password fields are masked</b> when Windows reports them as password fields. Other secrets are only redacted if we can detect them.</li>
           </ul>
         </>
       ) : phase.kind === "recording" ? (
         <div className="status">
           <div className="big-dot" />
-          <h1>{phase.countdown ? `Starting in ${phase.countdown}…` : "Recording"}</h1>
+          <h1>{phase.countdown ? `Starting in ${phase.countdown}…` : phase.paused ? "Paused" : "Recording"}</h1>
           <p className="lede">
             {phase.countdown ? "Switch to the window you'll work in." :
               `${Math.floor(phase.t / 60)}:${String(Math.floor(phase.t % 60)).padStart(2, "0")} · ${phase.events} events. Press F9 or Stop when you're done.`}
           </p>
-          <button className="btn" onClick={() => bridge.stopRecording()}>Stop recording</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {!phase.countdown && <button className="btn" onClick={() => bridge.pauseRecording(!phase.paused)}>{phase.paused ? "Resume" : "Pause"} (F8)</button>}
+            <button className="btn" onClick={() => bridge.stopRecording()}>Stop recording (F9)</button>
+          </div>
+          {phase.paused && <p className="hint">Nothing is captured while paused: no input, no screen, silence instead of audio.</p>}
         </div>
       ) : (
         <div className="status">

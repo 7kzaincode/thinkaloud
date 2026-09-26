@@ -1,0 +1,222 @@
+{
+  "checks": [
+    {
+      "name": "recorder exited cleanly",
+      "ok": true,
+      "detail": "exit 0"
+    },
+    {
+      "name": "processor succeeded",
+      "ok": true,
+      "detail": "\\Temp\\\\thinkaloud-e2e\\\\2026-09-26T00-58-31\", \"message\": \"transcript: 0 segments\"}\n{\"event\": \"processed\", \"dir\": \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\thinkaloud-e2e\\\\2026-09-26T00-58-31\", \"session_id\": \"2026-09-26T00-58-31\", \"summary\": \"68 steps, 68 missing reasoning, 1 masked input\", \"high\": 0}\n"
+    },
+    {
+      "name": "one click step on Add to Cart",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "name": "UIA: Add to Cart is a button",
+      "ok": true,
+      "detail": "ok button 'Add to Cart' 21.7 ms"
+    },
+    {
+      "name": "description names the button",
+      "ok": true,
+      "detail": "Clicked the Add to Cart button"
+    },
+    {
+      "name": "UIA: document URL recorded",
+      "ok": true,
+      "detail": "ok file:///C:/Users/admin/thinkaloud/scripts/testbench/page.html"
+    },
+    {
+      "name": "before image finished before the click",
+      "ok": true,
+      "detail": "{\"status\": \"ok\", \"file\": \"frames/f000007.png\", \"source\": \"still\", \"capture_seq\": 7, \"t_capture_start\": 1.8911, \"t_capture_end\": 1.9119, \"offset_s\": -0.0982}"
+    },
+    {
+      "name": "before image shows the un-clicked state (gray swatch)",
+      "ok": true,
+      "detail": "(128, 128, 128)"
+    },
+    {
+      "name": "after image shows the result (green swatch)",
+      "ok": true,
+      "detail": "(0, 170, 0)"
+    },
+    {
+      "name": "UIA: Search is a text field",
+      "ok": true,
+      "detail": "{'status': 'ok', 'role': 'edit', 'control_type_id': 50004, 'name': 'Search', 'automation_id': 'search', 'class_name': '', 'framework': 'Chrome', 'rect': [92, 26"
+    },
+    {
+      "name": "search text typed as one step",
+      "ok": true,
+      "detail": "['noise cancelling headphones', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022']"
+    },
+    {
+      "name": "Enter is its own step",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "UIA: password field reported as password",
+      "ok": true,
+      "detail": "{'status': 'ok', 'role': 'edit', 'control_type_id': 50004, 'name': 'Password', 'automation_id': 'password', 'class_name': '', 'framework': 'Chrome', 'rect': [92"
+    },
+    {
+      "name": "password typing masked at capture",
+      "ok": true,
+      "detail": "[{'type': 'type', 'text': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', 'masked_chars': 14}]"
+    },
+    {
+      "name": "password never written to disk (files, and keystrokes reassembled)",
+      "ok": true,
+      "detail": "files: []"
+    },
+    {
+      "name": "scroll-pause-scroll-reverse is one step",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "name": "scroll runs keep direction change",
+      "ok": true,
+      "detail": "[('down', 8.0), ('up', 3.0)]"
+    },
+    {
+      "name": "raw wheel events kept",
+      "ok": true,
+      "detail": "11"
+    },
+    {
+      "name": "scroll has a settled after-state",
+      "ok": true,
+      "detail": "settled"
+    },
+    {
+      "name": "UIA: page 2 link",
+      "ok": true,
+      "detail": "{'status': 'ok', 'role': 'link', 'control_type_id': 50005, 'name': 'Go to page 2', 'automation_id': 'page2', 'class_name': '', 'framework': 'Chrome', 'rect': [2"
+    },
+    {
+      "name": "after navigation shows page 2 (blue swatch)",
+      "ok": true,
+      "detail": "(0, 0, 200)"
+    },
+    {
+      "name": "every flash appears in the first frame captured after it (delay <= 1 frame + 80 ms render)",
+      "ok": true,
+      "detail": "{\"min\": 0.016, \"median\": 0.07, \"max\": 0.273}"
+    },
+    {
+      "name": "no state change appears in a frame captured before its click",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "name": "no drift: late-run delays match early-run delays (\u00b11 frame)",
+      "ok": true,
+      "detail": "{\"flashes\": 60, \"measured\": 60, \"not_found\": 0, \"shown_before_click\": 0, \"delay_s\": {\"min\": 0.016, \"median\": 0.07, \"max\": 0.273}, \"first_half_median_s\": 0.067, \"second_half_median_s\": 0.213, \"frame_period_s\": 0.25, \"duration_s\": 198.9481, \"video_dropped\": 0, \"audio_drift_ppm\": 22.7}"
+    },
+    {
+      "name": "playback.mp4 keeps capture timestamps",
+      "ok": true,
+      "detail": "[0.124, 0.401, 0.649, 0.896] vs [0.124, 0.401, 0.649, 0.896]"
+    }
+  ],
+  "sync": {
+    "flashes": 60,
+    "measured": 60,
+    "not_found": 0,
+    "shown_before_click": 0,
+    "delay_s": {
+      "min": 0.016,
+      "median": 0.07,
+      "max": 0.273
+    },
+    "first_half_median_s": 0.067,
+    "second_half_median_s": 0.213,
+    "frame_period_s": 0.25,
+    "duration_s": 198.9481,
+    "video_dropped": 0,
+    "audio_drift_ppm": 22.7
+  },
+  "steps": [
+    "Clicked the Add to Cart button",
+    "Clicked the Search field",
+    "Typed \"noise cancelling headphones\"",
+    "Pressed Enter",
+    "Clicked the Password field",
+    "Typed 14 characters into a password field (masked)",
+    "Scrolled down 8, then up 3",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Flash button",
+    "Clicked the Go to page 2 link"
+  ],
+  "run": {
+    "at": "2026-09-26T01:01:55",
+    "flash_seconds": 180.0,
+    "flash_interval": 3.0,
+    "session_kept": false
+  }
+}

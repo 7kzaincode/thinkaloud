@@ -189,8 +189,17 @@ class Job:
                     self.status(session, state="done", attempts=attempts, error=None, finished_at=now_iso(),
                                 input_hash=ih, done_input_hash=ih)
                     return
-                tail = log.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-3:]
-                error = f"exit {code}: " + " | ".join(tail)[-400:]
+                lines = log.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+                plain = []  # InputError messages from the processor (text or --json event lines)
+                for l in lines:
+                    if l.startswith("error: "):
+                        plain.append(l[len("error: "):])
+                    elif l.startswith("{") and '"event": "error"' in l:
+                        try:
+                            plain.append(json.loads(l)["message"])
+                        except (ValueError, KeyError):
+                            pass
+                error = plain[-1][:400] if plain else f"exit {code}: " + " | ".join(lines[-3:])[-400:]
                 if attempts <= self.retries:
                     time.sleep(min(10, 1.5 * attempts))
             self.status(session, state="failed", attempts=attempts, error=error or "interrupted", finished_at=now_iso())
