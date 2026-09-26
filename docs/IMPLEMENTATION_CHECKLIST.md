@@ -18,7 +18,7 @@ test names refer to `processor/tests/` and `viewer/lib/review.test.ts`.
 | A2.4 | Coordinate-space metadata | meta `coordinate_space`; trajectory `coordinate_space`, `frame_rect` | `test_monitor_origin_transform_and_target_kept`; native coordinates match pixels (C20) | VERIFIED |
 | A2.5 | Schema versioned; 0.1 recordings still load; missing after stays missing | pipeline legacy path, `legacy_earlier_action`/`at_action`, viewer `normalize()`, review rebase for 0.1 reviews | `test_legacy_v01_recording_still_processes`, `test_legacy_recording_exports…`; user's 3 real 0.1 recordings reprocessed with reviews preserved (C15) | VERIFIED |
 | A2.6 | Before/after inspection in viewer | `Stage.tsx` | browser check (C12) | VERIFIED |
-| A3.1 | UIA target metadata incl. URL when reliable | `recorder/uia.py` | native: button "Add to Cart", edit "Search", password edit, link "Go to page 2", `file:///…page.html` URL, 20 ms (C20) | VERIFIED |
+| A3.1 | UIA target metadata incl. URL when reliable | `recorder/uia.py` (+ descend from container hits) | native: button "Add to Cart", edit "Search", password edit, link "Go to page 2", `file:///…page.html` URL, 20 ms (C20, C31); packaged app names the button via the descend fallback (C30) | VERIFIED |
 | A3.2 | Non-blocking lookups, timeouts, stale-skip, fallback | UIA worker thread, UIA transaction timeout 600 ms, `skipped_stale`, 500 ms reliability cut-off | `test_description_uses_reliable_target_only`; C3 (803 ms lookup on blocked app bounded, not used) | VERIFIED |
 | A3.3 | "Clicked the Add to Cart button" with raw metadata | `describe.py` / `format.ts`, StepPanel raw details | native description (C20), browser (C12) | VERIFIED |
 | A4.1 | ~4 FPS configurable video, bounded memory, encoder failure, cleanup | `VideoWriter` (bounded queue, drops counted, error state drains), `--fps` | C3/C20 (0 dropped), recorder exit 0 with closed, decodable MKV | VERIFIED |
@@ -35,12 +35,12 @@ test names refer to `processor/tests/` and `viewer/lib/review.test.ts`.
 | B1.3 | Narration distinct from edits/AI; timing; missing stays missing | dataset `narration`, `reasoning.original`, `ai_assessment.suggestion_only` | `test_dataset_record_content`, `test_human_decisions_and_ai_suggestions_keep_provenance`, `test_claude_export_structure` | VERIFIED |
 | B1.4 | Explicit errors/warnings for unsupported actions | `claude_calls` problems → `errors`, `valid_for_training` | tests for redacted/masked/off-screen/unknown key/rounding | VERIFIED |
 | B1.5 | Standalone loader/validator + fixtures | `dataset.py` copied as `thinkaloud_dataset.py` | tamper + ownership violation detection tests; frozen engine export validates | VERIFIED |
-| B1.6 | One-click export with accurate reporting | `ExportDialog.tsx`, `/api/export`, download route | browser export (C12, C13) | VERIFIED |
+| B1.6 | One-click export with accurate reporting | `ExportDialog.tsx`, `/api/export`, download route; privacy gate | browser export (C12, C13); packaged app export + download + independent validation (C30); gate (C29) | VERIFIED |
 | B2.1 | Anthropic integration, configurable, key server-side | `ai_review.py`, `/api/sessions/[id]/ai`, `/api/ai/status`, desktop `safeStorage` | 14 fixture tests | IMPLEMENTED; live BLOCKED (no key) |
 | B2.2 | Narration assessment, filler/missing | `ai_review.py` narration | fixture tests | VERIFIED (fixtures) |
 | B2.3 | Editable checklist drafts | drafts → accept/edit/reject | `review.test.ts` drafts test; browser checklist | VERIFIED (fixtures + UI) |
 | B2.4 | Final-screen supported/contradicted/unknown | `ai_review.py` final_screen | fixture tests; outcome never set by AI | VERIFIED (fixtures) |
-| B2.5 | Human confirmation, provenance, staleness | `lib/review.ts` | 10 viewer tests | VERIFIED |
+| B2.5 | Human confirmation, provenance, staleness | `lib/review.ts` | 15 viewer tests (incl. undo after re-run, accepted check then re-run, reworded items); provenance exported (`test_checklist_verdict_provenance_and_rewording_are_exported`) | VERIFIED |
 | B2.6 | Structured output validation, errors, disclosure, untrusted data | `ai_review.py`, EndPanel consent | error mapping tests (rate limit, auth, 5xx, timeout, network, refusal, truncation, malformed, missing image/credentials) | VERIFIED (fixtures) |
 | B3.1 | Batch view with real metrics | `Batch.tsx`, `metrics.ts` | metric denominator test; browser (C12, C15) | VERIFIED |
 | B3.2 | Filters, navigation, batch controls | `Batch.tsx`, `/api/batch` | browser: Process selected on 3 recordings (C15) | VERIFIED |
@@ -50,8 +50,9 @@ test names refer to `processor/tests/` and `viewer/lib/review.test.ts`.
 
 | ID | Requirement | Status |
 |---|---|---|
-| I1 | Full journey task → record → process → inspect → replay → AI → decisions → batch → export | IN PROGRESS: each stage verified (C12, C15, C20); single-run desktop journey pending |
+| I1 | Full journey task → record → process → inspect → replay → AI → decisions → batch → export | VERIFIED except live AI: packaged desktop app in one run, record → process → review → replay → checklist/outcome → export → download → reload → recordings page, 17/17 (C30); batch (C15, C28); AI step BLOCKED (no key; fixture-tested) |
 | I2 | Persistence across reloads; reprocessing keeps human edits | VERIFIED (C12 autosave; C15 rebase) |
-| I3 | Clear recording state, stop and pause, password masking | VERIFIED (masking C20; pause implemented in recorder/pill/Record page) |
-| I4 | Independent review A (correctness/data integrity) | IN PROGRESS |
-| I5 | Independent review B (product/adversarial) | IN PROGRESS |
+| I3 | Clear recording state, stop and pause, password masking | VERIFIED (masking by click and by Tab, fail-closed: C31; pause C23) |
+| I4 | Independent review A (correctness/data integrity) | VERIFIED: 19 findings, all fixed with tests or checks (VALIDATION_LOG "Review A") |
+| I5 | Independent review B (product/adversarial) | VERIFIED: 20 findings, all fixed with tests or checks (VALIDATION_LOG "Review B") |
+| I6 | Re-review of the fixes and the final integrated state | IN PROGRESS |

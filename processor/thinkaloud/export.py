@@ -265,9 +265,17 @@ def dataset_record(t: dict, assets: dict[str, str], media_asset: str | None) -> 
             "checklist": [{"id": c["id"], "text": c["text"], "origin": c.get("origin"),
                            "human_verdict": c.get("human_verdict"),
                            "human_verdict_source": c.get("human_verdict_source"),
+                           # which AI check the human adopted (if any); the latest check may differ
+                           "accepted_from": c.get("accepted_from"),
+                           # the wording the verdict was given for; outdated = the item was reworded since
+                           "verdict_given_for": c.get("verdict_text"),
+                           "verdict_outdated": bool(c.get("human_verdict") and c.get("verdict_text") is not None
+                                                    and c.get("verdict_text") != c["text"]),
                            "ai_check": c.get("ai_check")} for c in review.get("checklist", [])],
             "ai_runs": ai.get("runs", []),
             "ai_checklist_drafts": ai.get("checklist_drafts", []),
+            # reprocessing history: which human edits could not be carried to the new steps
+            "rebase_history": review.get("rebase_history", []),
         },
         "qc": {"summary": t.get("qc", {}).get("summary"), "counts": t.get("qc", {}).get("counts", {})},
         "session_flags": t.get("session_flags", []),
@@ -577,6 +585,13 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 warnings += [f"{rid} (claude): {w}" for w in crec["warnings"]]
             if not rec["review"]["outcome"]:
                 warnings.append(f"{rid}: no human outcome decision; do not use as a positive demonstration")
+            for c in rec["review"]["checklist"]:
+                if c["verdict_outdated"]:
+                    warnings.append(f"{rid}: checklist item {c['id']} was reworded after its verdict was given")
+            for h in rec["review"]["rebase_history"][-1:]:
+                if h.get("dropped"):
+                    warnings.append(f"{rid}: {len(h['dropped'])} review edit(s) could not be carried over when the "
+                                    f"recording was reprocessed")
             recs.append(entry)
         if not recs:
             shutil.rmtree(tmp, ignore_errors=True)

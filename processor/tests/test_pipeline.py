@@ -224,3 +224,14 @@ def test_emails_and_tokens_in_urls_titles_are_flagged_and_redacted():
     qc.redact(steps)
     blob = json.dumps(steps[0])
     assert "bob@example.com" not in blob and "abc123" not in blob
+
+
+def test_segmentation_uses_the_recorded_double_click_box(sample):
+    meta = json.loads((sample / "meta.json").read_text(encoding="utf-8"))
+    meta.setdefault("capture", {})["double_click_size_px"] = [30, 30]
+    (sample / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    traj = process(sample, log=lambda *_: None)
+    assert traj["source"]["segmentation"]["double_click_px"] == 15
+    meta["capture"]["double_click_size_px"] = "garbage"
+    (sample / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    assert process(sample, log=lambda *_: None)["source"]["segmentation"]["double_click_px"] == 2
