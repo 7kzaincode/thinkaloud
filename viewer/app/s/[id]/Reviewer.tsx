@@ -64,6 +64,8 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
   const adopted = useRef<Trajectory | null>(null);
+  // after a save-time rebase while newer edits were pending: the base the server now has
+  const pendingBase = useRef<string | null>(null);
   const leaving = useRef(false);
 
   const flush = useCallback(async (opts: { force?: boolean; unload?: boolean } = {}): Promise<boolean> => {
@@ -76,10 +78,14 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
     let ok = false;
     const run = (async () => {
       setSave({ kind: "saving" });
-      const body = JSON.stringify(R.reviewPayload(snapshot, new Date().toISOString()));
-      const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      const payload = R.reviewPayload(snapshot, new Date().toISOString());
+      const adopt = pendingBase.current !== null;
+      if (adopt) payload.review.base_hash = pendingBase.current!; // already rebased: don't record it twice
+      const body = JSON.stringify(payload);
+      const bytes = new TextEncoder().encode(body).length;
+      const r = await fetch(`/api/sessions/${encodeURIComponent(id)}${adopt ? "?adopt=1" : ""}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body,
-        keepalive: !!opts.unload && body.length < 60_000,   // browsers cap keepalive bodies at 64 KB
+        keepalive: !!opts.unload && bytes < 60_000,   // browsers cap keepalive bodies at 64 KB (bytes)
       }).catch(() => null);
       if (!r?.ok) {
         dirty.current = true;
@@ -97,20 +103,22 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
       failures.current = 0;
       const j = await r.json().catch(() => ({}));
       const at = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      if (j.rebased && j.trajectory && !dirty.current) {
-        // adopt the rebased version; keep the same step selected (by uid, indexes can shift)
+      if ((j.rebased || adopt) && j.trajectory && !dirty.current) {
+        // adopt the rebased version; keep the same step selected (by step key: indexes can shift)
         const cur = selRef.current;
-        const uid = typeof cur === "number" ? latest.current.steps[cur]?.uid : null;
+        const key = typeof cur === "number" && latest.current.steps[cur] ? R.stepKey(latest.current.steps[cur]) : null;
         const next = j.trajectory as Trajectory;
         adopted.current = next;
+        pendingBase.current = null;
         setT(next);
-        if (uid) {
-          const i = next.steps.findIndex((s) => s.uid === uid);
+        if (key) {
+          const i = next.steps.findIndex((s) => R.stepKey(s) === key);
           setSel(i >= 0 ? i : Math.min(cur as number, next.steps.length - 1));
         }
         const n = next.review?.rebased?.dropped?.length ?? 0;
         setSave({ kind: "saved", at, msg: `recording was reprocessed; your edits were carried over${n ? ` (${n} no longer apply)` : ""}` });
-      } else if (j.rebased) {
+      } else if (j.rebased || adopt) {
+        pendingBase.current = j.base_hash;
         dirty.current = true;   // newer edits are pending: save them too, then adopt
       } else {
         setT((c) => (c.review.base_hash === j.base_hash ? c : { ...c, review: { ...c.review, base_hash: j.base_hash } }));

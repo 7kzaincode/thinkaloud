@@ -90,6 +90,10 @@ def _clean_flag(f) -> dict | None:
     return out
 
 
+def _public_flag(f: dict) -> dict:
+    return {k: v for k, v in f.items() if k != "subject"}
+
+
 def overlay_review(orig: dict, rev: dict) -> dict:
     """The processor's trajectory with ONLY review-owned fields taken from the reviewer's file.
     The reviewer's file is written by the browser, so nothing else in it (actions, image paths,
@@ -267,8 +271,9 @@ def dataset_record(t: dict, assets: dict[str, str], media_asset: str | None) -> 
                 "edited_by_reviewer": s.get("reasoning_source") == "reviewer",
                 "original": None if not orig else {"text": orig.get("text"), "source": orig.get("source")},
             },
-            "flags": s.get("flags", []),
-            "dismissed_flags": s.get("dismissed_flags", []),
+            # subjects are for matching dismissals on this machine only; never exported
+            "flags": [_public_flag(f) for f in s.get("flags", [])],
+            "dismissed_flags": [_public_flag(f) for f in s.get("dismissed_flags", [])],
             "ai_assessment": None if not a else {**{k: a.get(k) for k in ("verdict", "explanation", "run_id", "input_hash")},
                                                 "human_decision": a.get("decision"), "suggestion_only": True},
         })
@@ -317,7 +322,7 @@ def dataset_record(t: dict, assets: dict[str, str], media_asset: str | None) -> 
             "rebase_history": review.get("rebase_history", []),
         },
         "qc": {"summary": t.get("qc", {}).get("summary"), "counts": t.get("qc", {}).get("counts", {})},
-        "session_flags": t.get("session_flags", []),
+        "session_flags": [_public_flag(f) for f in t.get("session_flags", [])],
     }
 
 
@@ -353,14 +358,24 @@ def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list
     problems: list = []
     sw, sh = round(frame[0] * scale), round(frame[1] * scale)
 
+    outside = []
+
     def coord(x, y):
         # the pixel's centre, scaled; always inside the screenshot for a pixel inside the frame
         c = [min(math.floor((x + 0.5) * scale), sw - 1), min(math.floor((y + 0.5) * scale), sh - 1)]
         if not (0 <= x < frame[0] and 0 <= y < frame[1]):
             c = [math.floor((x + 0.5) * scale), math.floor((y + 0.5) * scale)]
+            outside.append(c)
             problems.append(("error", f"coordinate {c} outside the {sw}x{sh} screenshot "
-                                      "(action on another monitor or outside the captured frame)"))
+                                      "(action on another monitor or outside the captured frame); "
+                                      "this action is omitted"))
         return c
+
+    calls, problems = _claude_calls(a, coord, problems)
+    return ([] if outside else calls), problems
+
+
+def _claude_calls(a: dict, coord, problems: list) -> tuple[list[tuple[str, dict]], list]:
 
     t = a["type"]
     if t == "click" and a.get("drag_problem"):
@@ -489,9 +504,13 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
             continue
         paused = last_end is not None and any(p0 < s["t_start"] and (p1 is None or p1 > last_end) for p0, p1 in pauses)
         if messages[1:] and (paused or not last_seen_ok):
-            # the screen the model saw last is not the screen this action was taken on: look again
-            before = img(s["observations"]["before"])
+            # the screen the model saw last is not the screen this action was taken on: look again, but
+            # only with an image captured after the gap (a stale or earlier image would repeat an old screen)
+            bo = s["observations"]["before"]
             why = "after a pause" if paused else "after an omitted step or a missing after-state"
+            gap_end = max([last_end or 0.0] + [p1 for p0, p1 in pauses if p1 is not None and p1 <= s["t_start"]])
+            fresh = bo.get("status") == "ok" and (bo.get("t_capture_start") or -1) >= gap_end
+            before = img(bo) if fresh else None
             if before:
                 look = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_look"
                 messages.append({"role": "assistant", "content": [
@@ -500,7 +519,15 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
                     {"type": "tool_result", "tool_use_id": look, "toolset_name": "computer", "content": [before]}]})
                 warnings.append(f"step {s['uid']}: extra screenshot turn {why} (the screen may have changed)")
             else:
-                warnings.append(f"step {s['uid']}: the screen before this action is unknown ({why})")
+                look = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_look"
+                messages.append({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": look, "name": "screenshot", "toolset_name": "computer", "input": {}}]})
+                messages.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": look, "toolset_name": "computer", "is_error": True,
+                     "content": [{"type": "text", "text": "Screenshot unavailable: the screen before this action "
+                                                          "was not captured."}]}]})
+                warnings.append(f"step {s['uid']}: the screen before this action is unknown ({why}); "
+                                "the extra screenshot result is an error")
         uses, results = [], []
         for n, (name, inp) in enumerate(calls):
             tid = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_{n}"
@@ -583,6 +610,9 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 t, notes = effective_trajectory(session)
             except ds.ExportError as e:
                 skipped.append({"id": rid, "reason": str(e)})
+                continue
+            except Exception as e:  # e.g. a truncated review file: skip this recording, not the export
+                skipped.append({"id": rid, "reason": f"could not read the recording: {type(e).__name__}: {str(e)[:200]}"})
                 continue
             if rid in seen_ids or not re.fullmatch(r"[\w.-]+", rid) or rid in (".", ".."):
                 skipped.append({"id": rid, "reason": "duplicate or invalid recording folder name"})

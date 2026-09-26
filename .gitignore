@@ -13,6 +13,9 @@ events.jsonl
 trajectory.reviewed.json
 *.trajectory.json
 *.tmp
+.subject-key
+processing.lock
+processing.takeover
 
 # Python
 .venv/

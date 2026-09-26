@@ -141,12 +141,32 @@ def test_only_one_job_takes_over_a_stale_lock(library):
 
         def go(j):
             barrier.wait()
-            got.append(j.claim(session))
+            try:
+                got.append(j.claim(session))
+            except Exception as e:  # claim must never raise: a worker would die
+                got.append(e)
 
         threads = [threading.Thread(target=go, args=(j,)) for j in jobs]
         [t.start() for t in threads]
         [t.join() for t in threads]
+        assert not [g for g in got if isinstance(g, Exception)], got
         wins.append(sum(got))
         lock.unlink(missing_ok=True)
     assert all(w == 1 for w in wins), wins
     assert not list(session.glob("processing.lock.stale-*"))
+
+
+def test_takeover_guard_is_cleaned_up_and_a_crashed_guard_expires(library):
+    import os, time
+    session = library / "rec-a"
+    job = batch.Job([session], library.parent / "jobs", "g", 1, 0, False, "base.en", "local")
+    guard = session / "processing.takeover"
+    guard.write_text("")                                         # another job is taking over right now
+    lock = session / "processing.lock"
+    lock.write_text("{}")
+    old = time.time() - 120
+    os.utime(lock, (old, old))
+    assert job.claim(session) is False and lock.exists()
+    os.utime(guard, (old, old))                                  # ... and crashed long ago
+    assert job.claim(session) is False                           # this attempt clears the dead guard
+    assert job.claim(session) is True and not guard.exists()

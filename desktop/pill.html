@@ -43,6 +43,7 @@
   const $ = (id) => document.getElementById(id);
   const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   let paused = false;
+  let warn = "";
   $("pause").onclick = () => window.thinkaloud.pauseRecording(!paused);
   $("stop").onclick = () => { $("stop").disabled = true; $("stop").textContent = "Saving…"; window.thinkaloud.stopRecording(); };
   window.thinkaloud.onRecorder((ev) => {
@@ -58,8 +59,9 @@
     if (ev.event === "status" && !ev.paused) {
       $("time").textContent = fmt(ev.t);
       $("level").style.width = `${Math.round(ev.level * 100)}%`;
-      $("meta").textContent = `${ev.events} event${ev.events === 1 ? "" : "s"}`;
+      $("meta").textContent = `${ev.events} event${ev.events === 1 ? "" : "s"}${warn ? ` · ⚠ ${warn}` : ""}`;
     }
+    if (ev.event === "warning" && ev.short) { warn = ev.short; $("pill").title = ev.message || ev.short; }
     if (ev.event === "stopping") { $("pill").classList.remove("rec"); $("meta").textContent = "saving…"; }
   });
 </script>

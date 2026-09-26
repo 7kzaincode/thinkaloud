@@ -117,7 +117,8 @@ def test_export_validates_and_the_bundled_validator_agrees(processed, tmp_path):
     assert out.returncode == 0 and rep["ok"] and rep["recordings"] == 1
     with zipfile.ZipFile(r["zip"]) as z:
         assert any(n.endswith("manifest.json") for n in z.namelist())
-    assert ds.load_bundle(r["zip"]).manifest["formats"] == ["dataset", "claude"]
+    with ds.load_bundle(r["zip"]) as zb:
+        assert zb.manifest["formats"] == ["dataset", "claude"]
 
 
 def test_open_privacy_flags_block_export_unless_confirmed(processed, tmp_path):
@@ -334,7 +335,10 @@ def test_unrepresentable_drag_is_an_error_not_a_click():
 def test_after_a_pause_the_model_sees_the_screen_it_acted_on(processed, tmp_path):
     t = json.loads((processed / "trajectory.json").read_text(encoding="utf-8"))
     s1, s2 = t["steps"][9], t["steps"][10]                    # two clicks with images
-    t.setdefault("timeline", {})["pauses"] = [[s1["t_end"] + 0.01, s2["t_start"] - 0.01]]
+    b2 = s2["observations"]["before"]
+    assert b2["status"] == "ok" and b2["t_capture_start"] > s1["t_end"] + 0.02
+    # the pause ends before s2's before-image was captured: that image shows the screen after the pause
+    t.setdefault("timeline", {})["pauses"] = [[s1["t_end"] + 0.01, b2["t_capture_start"] - 0.005]]
     (processed / "trajectory.json").write_text(json.dumps(t), encoding="utf-8")
     r = export_bundle([processed], tmp_path / "out", allow_privacy_flags=True)
     assert r["validation"]["ok"], r["validation"]["errors"]
@@ -423,3 +427,78 @@ def test_validator_cross_checks_claude_coordinates_against_the_dataset(processed
     (b / rel).write_text(json.dumps(c), encoding="utf-8")
     _resign(b, rel)
     assert any("does not match the dataset action" in e for e in ds.validate_bundle(b)["errors"])
+
+
+def test_look_turn_never_repeats_a_screen_from_before_the_pause(processed, tmp_path):
+    t = json.loads((processed / "trajectory.json").read_text(encoding="utf-8"))
+    s1, s2 = t["steps"][9], t["steps"][10]
+    t.setdefault("timeline", {})["pauses"] = [[s1["t_end"] + 0.01, s2["t_start"] - 0.01]]
+    s2["observations"]["before"]["status"] = "stale"            # the latest capture predates the pause
+    (processed / "trajectory.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out", allow_privacy_flags=True)
+    assert r["validation"]["ok"], r["validation"]["errors"]
+    claude = json.loads((Path(r["bundle"]) / "claude" / "synthetic-flight.json").read_text(encoding="utf-8"))
+    look_id = f"toolu_synthetic_flight_{s2['uid']}_look"
+    i = next(k for k, m in enumerate(claude["messages"]) if m["role"] == "assistant" and m["content"][0]["id"] == look_id)
+    res = claude["messages"][i + 1]["content"][0]
+    assert res.get("is_error") and "not captured" in res["content"][0]["text"]
+
+
+def test_bundle_files_must_be_checksummed(processed, tmp_path):
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False, allow_privacy_flags=True)
+    b = Path(r["bundle"])
+    man = json.loads((b / "manifest.json").read_text(encoding="utf-8"))
+    rel = "recordings/synthetic-flight/trajectory.json"
+    man["files"] = [f for f in man["files"] if f["path"] != rel]      # edit the dataset and drop its checksum
+    (b / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    errs = ds.validate_bundle(b)["errors"]
+    assert any("not listed in the manifest" in e for e in errs)
+    assert any("dataset file" in e and "not a checksummed file" in e for e in errs)
+
+
+def test_exports_never_contain_subject_hashes(processed, tmp_path):
+    t = review(processed, outcome="pass")
+    i = next(k for k, s in enumerate(t["steps"]) if any(f["code"] == "possible_email" for f in s["flags"]))
+    t["steps"][i]["dismissed_flags"] = [f for f in t["steps"][i]["flags"] if f["severity"] == "high"]
+    (processed / "trajectory.reviewed.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False)
+    assert r["ok"], r
+    for p in Path(r["bundle"]).rglob("*.json"):
+        assert '"subject"' not in p.read_text(encoding="utf-8"), p
+    assert not list(Path(r["bundle"]).rglob(".subject-key"))
+
+
+def test_click_on_another_monitor_is_left_out_and_the_bundle_still_validates(processed, tmp_path):
+    t = json.loads((processed / "trajectory.json").read_text(encoding="utf-8"))
+    st = next(s for s in t["steps"] if s["action"]["type"] == "click")
+    st["action"]["x"] = t["screen"]["w"] + 300                         # clicked on the second monitor
+    (processed / "trajectory.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out", allow_privacy_flags=True)
+    assert r["validation"]["ok"], r["validation"]["errors"]
+    assert any("outside" in e and "omitted" in e for e in r["errors"])
+    claude = json.loads((Path(r["bundle"]) / "claude" / "synthetic-flight.json").read_text(encoding="utf-8"))
+    assert next(m for m in claude["step_map"] if m["uid"] == st["uid"])["omitted"] is True
+
+
+def test_a_corrupt_review_file_skips_that_recording_only(processed, tmp_path):
+    other = tmp_path / "second-rec"
+    shutil.copytree(processed, other)
+    (other / "trajectory.reviewed.json").write_text('{"review": {"base_ha', encoding="utf-8")   # truncated
+    r = export_bundle([processed, other], tmp_path / "out", allow_privacy_flags=True)
+    assert r["ok"] and r["recordings"] == 1
+    assert r["skipped"][0]["id"] == "second-rec" and "could not read" in r["skipped"][0]["reason"]
+
+
+def test_validator_cross_checks_scroll_directions_and_typed_text(processed, tmp_path):
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False, allow_privacy_flags=True)
+    b = Path(r["bundle"])
+    rel = "claude/synthetic-flight.json"
+    c = json.loads((b / rel).read_text(encoding="utf-8"))
+    sc = next(u for m in c["messages"] if m["role"] == "assistant" for u in m["content"] if u["name"] == "scroll")
+    sc["input"]["scroll_direction"] = "up" if sc["input"]["scroll_direction"] == "down" else "down"
+    ty = next(u for m in c["messages"] if m["role"] == "assistant" for u in m["content"] if u["name"] == "type")
+    ty["input"]["text"] = ty["input"]["text"] + "x"
+    (b / rel).write_text(json.dumps(c), encoding="utf-8")
+    _resign(b, rel)
+    errs = ds.validate_bundle(b)["errors"]
+    assert any("scrolls" in e for e in errs) and any("the dataset step typed" in e for e in errs)

@@ -323,3 +323,11 @@ def test_gemini_key_never_appears_in_errors(traj, gemini):
     fake = FakeGemini(gerr(gerrors.ClientError, 400, "INVALID_ARGUMENT", f"bad value near {key}"))
     out = ar.run_review(s, "checklist", t, client=fake)
     assert out["error_type"] == "bad_request" and key not in json.dumps(out) and "[key]" in out["error"]
+
+
+def test_model_override_only_applies_to_its_own_provider(monkeypatch):
+    monkeypatch.setenv("THINKALOUD_AI_MODEL", "claude-sonnet-5")
+    assert ar.model_for("anthropic") == "claude-sonnet-5"
+    assert ar.model_for("gemini") == "gemini-3.5-flash"             # never a Claude name sent to Gemini
+    monkeypatch.setenv("THINKALOUD_AI_MODEL_GEMINI", "gemini-3.6-flash")
+    assert ar.model_for("gemini") == "gemini-3.6-flash"

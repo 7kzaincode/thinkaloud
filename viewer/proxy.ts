@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { crossSite, localHost } from "./lib/access";
+import { crossSite, localHost, topLevelPageVisit } from "./lib/access";
 
 /**
  * Every request (pages, API, media, static files): the viewer serves private recordings, so it
@@ -11,7 +11,7 @@ export function proxy(req: NextRequest) {
   if (!localHost(req.headers.get("host"))) {
     return new NextResponse("forbidden: not a local request", { status: 403 });
   }
-  if (crossSite(req.headers.get("sec-fetch-site"))) {
+  if (crossSite(req.headers.get("sec-fetch-site")) && !topLevelPageVisit(req, req.nextUrl.pathname)) {
     return new NextResponse("forbidden: cross-site request", { status: 403 });
   }
   return NextResponse.next();

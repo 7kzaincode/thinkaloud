@@ -149,7 +149,8 @@ and model that will receive the data, and every run records both.
 | `THINKALOUD_AI_PROVIDER` | automatic | `anthropic` or `gemini` |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | – | Anthropic credentials (or an `ant auth login` profile) |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | – | Gemini credentials |
-| `THINKALOUD_AI_MODEL` | `claude-opus-5` / `gemini-3.5-flash` | model id |
+| `THINKALOUD_AI_MODEL` | `claude-opus-5` / `gemini-3.5-flash` | model id; only used for the provider it names (`claude-…` / `gemini-…`) |
+| `THINKALOUD_AI_MODEL_ANTHROPIC` / `THINKALOUD_AI_MODEL_GEMINI` | – | per-provider model id (wins over the above) |
 | `THINKALOUD_AI_EFFORT` | (model default) | `low`…`max` (Gemini: thinking level) |
 | `THINKALOUD_AI_TIMEOUT` / `THINKALOUD_AI_MAX_RETRIES` | 120 s / 2 | per request; both SDKs retry 408/429/5xx |
 | `THINKALOUD_AI_FALLBACKS` | `default` | Anthropic only: server-side refusal fallback (`server-side-fallback-2026-07-01`); `off` to disable |
@@ -197,7 +198,8 @@ thinkaloud-export-<time>-<n>rec-<random>/
   the frame pixel, scaled: `floor((x + 0.5) * scale)`). Each step is an assistant turn with the action call(s) and a
   `screenshot` call, answered by `OK` results and the after-state image. When the screen the model saw last is not
   the screen the next action was taken on (a pause in between, an omitted step, a missing after-state), an extra
-  `screenshot` turn shows that action's before-image first. Mapping: left click ×1/2/3 → `left_click`/`double_click`/`triple_click`; right/middle →
+  `screenshot` turn shows that action's before-image first, but only if it was captured after the gap; otherwise
+  that screenshot result is an error ("not captured") rather than an older screen shown as current. Mapping: left click ×1/2/3 → `left_click`/`double_click`/`triple_click`; right/middle →
   `right_click`/`middle_click`; drag → `left_click_drag`; modifiers → `text`; typing → `type`; Backspace that
   deletes existing text → `key BackSpace` (with `repeat`); keys → `key` with xdotool names (`Return`, `ctrl+c`,
   `Page_Down`, `slash`, `ctrl+plus`, a lone Win key → `super`, `repeat` ≤ 100); scroll → one `scroll` per direction run (`scroll_direction`, whole-notch
@@ -223,8 +225,10 @@ The validator checks manifest checksums, schema, step order, that every *before*
 its action and every *after* image started after the action ended and finished before the next one began,
 coordinates, references, and that every image is a real PNG (for the Claude file, of the declared screenshot
 size); for the Claude file: message alternation, member names and inputs (including key names), coordinates
-inside the screenshot, one result per call with `toolset_name`. A `.zip` is extracted to a temporary folder
-that is removed when the bundle is closed (`with td.load_bundle(...) as b:`).
+inside the screenshot, one result per call with `toolset_name`; and that the Claude conversation says the same as
+the dataset (click/drag coordinates scaled, typed text, scroll directions). Every file must be listed with its
+checksum. A `.zip` is extracted to a temporary folder that is removed when the bundle is closed
+(`with td.load_bundle(...) as b:`).
 
 ## Data formats and timeline
 
@@ -281,10 +285,13 @@ flags it `drag_not_represented`). Steps have stable `uid`s (`s` + first event se
 - Keys typed into fields Windows reports as password fields (UI Automation `IsPassword`) are replaced with `•`
   before anything is written. The focused field is looked up again whenever focus may have moved (a click, Tab,
   Enter, a shortcut, a new typing burst), so a password typed right after Tab is masked. Masking **fails closed**:
-  if the focused field can't be checked (UI Automation timed out or errored, and asking again didn't help), the keys
-  are masked too and the recording gets a `masked_unknown_focus` flag. A focus answer is only trusted if no click or
-  focus-moving key happened between the keystroke and the lookup. With `--no-uia`, or if UI Automation fails to
-  start, password fields can't be detected: nothing is masked and the recording gets `password_masking_off`.
+  if the focused field can't be checked (UI Automation timed out or errored), the keys are masked too and the
+  recording gets a `masked_unknown_focus` flag. UI Automation answers can only ever *add* masking: a focus answer is
+  only trusted if no click or focus-moving key happened since the keystroke, it is never retried (a later answer may
+  describe where the page itself moved focus, e.g. auto-advancing PIN boxes), and typing right after clicking a
+  password field stays masked until you move focus. With `--no-uia`, or if UI Automation fails to start, password
+  fields can't be detected: nothing is masked, the pill says "passwords not masked", and the recording gets
+  `password_masking_off`, which is a high-severity flag (it blocks export until checked) when anything was typed.
 - Typed text that looks like an email or password is flagged and redacted from exports (`[REDACTED]`), including
   text typed and then deleted again (checked, never quoted in descriptions; the raw `keystrokes` are removed), an
   address typed in two bursts, and an address in the narration transcript. **The screen may still show it**: QC
@@ -295,13 +302,15 @@ flags it `drag_not_represented`). Steps have stable `uid`s (`s` + first event se
 - The recorder captures the whole monitor while recording. Use Pause for anything private.
 - AI review sends only what each button lists, only after consent. The API key never reaches the browser.
 - The viewer listens on 127.0.0.1 only. Every request (pages, API, media) is refused unless its Host is a loopback
-  name (DNS rebinding) and it wasn't made by a page on another site (`Sec-Fetch-Site`); the API also refuses
-  cross-origin requests and writes that aren't `application/json`. Frame and media paths are confined to the
+  name (DNS rebinding) and it wasn't made by a page on another site (`Sec-Fetch-Site`; a link on another site may
+  still open a viewer page in the tab, which that site can't read); the API also refuses cross-origin requests and
+  writes that aren't `application/json`. Frame and media paths are confined to the
   recording folder.
 - Exports skip recordings with open high-severity privacy flags unless you explicitly override (see Exports). A
-  dismissal only carries over to a reprocessed recording when the flag is about the same content (a hash of the
-  flagged text/URL is stored with the flag), and the export rebuilds flags from the processor's output rather than
-  trusting the review file's list.
+  dismissal only carries over to a reprocessed recording when the flag is about the same content: privacy flags
+  carry a keyed hash (HMAC with a random key kept only in the recording folder, `.subject-key`) of the flagged
+  text/URL, so it can't be used to guess the value, and it is never exported. The export rebuilds flags from the
+  processor's output rather than trusting the review file's list.
 
 ## Verification
 

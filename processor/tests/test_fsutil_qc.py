@@ -103,3 +103,68 @@ def test_privacy_flags_carry_a_subject_hash_of_the_content():
     assert fa["subject"] and fa["subject"] != fb["subject"]
     qc.redact(a)
     assert next(f for f in a[0]["flags"] if f["code"] == "redacted_value_on_screen")["subject"] == fa["subject"]
+
+
+def test_email_split_by_a_click_or_key_in_the_same_window_is_still_found():
+    click = {"t_start": 3.0, "t_end": 3.0, "action": {"type": "click", "x": 1, "y": 1, "button": "left"}, "flags": [],
+             "reasoning": "", "observations": {}, "context": {"window_title": "Sign in", "hwnd": 7}}
+    end_key = {**click, "action": {"type": "key", "key": "end"}}
+    for middle in (click, end_key):
+        steps = [_t("zain.demo", 1.0), dict(middle), _t("@example.com", 6.0)]
+        qc.check_steps(steps, [])
+        assert "possible_email" in {f["code"] for f in steps[0]["flags"]}
+        assert "possible_email" in {f["code"] for f in steps[2]["flags"]}
+
+
+@pytest.mark.parametrize("url", [
+    "https://admin:S3cretPw@192.168.1.10/", "http://deploy:hunter22@localhost:8080/x",
+    "https://a.example/cb?t=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig", "https://a.example/cb?code_verifier=abc",
+    "https://a.example/saml?SAMLResponse=PHNhbWw", "https://www.dropbox.com/scl/fi/x/y?rlkey=abc123&dl=0",
+    "https://a.example/reset/7F3K9Q"])
+def test_more_secret_urls_are_caught(url):
+    clean, found = qc.sanitize_url(url)
+    assert found and "S3cretPw" not in clean and "hunter22" not in clean and "eyJ" not in clean
+    assert "abc" not in clean and "PHNhbWw" not in clean and "7F3K9Q" not in clean
+
+
+@pytest.mark.parametrize("url", ["https://a.example/x?sessionTitle=Kickoff", "https://a.example/x?tokenizer=bpe",
+                                 "https://shop.example/confirm/order-confirmation-summary",
+                                 "https://www.youtube.com/watch?v=abc&t=30s"])
+def test_harmless_urls_are_left_alone(url):
+    assert qc.sanitize_url(url) == (url, False)
+
+
+def test_masking_off_blocks_export_only_when_plain_text_was_typed():
+    typed = [_t("hello", 1.0)]
+    f = next(x for x in qc.check_session({"input": {"password_masking": "off"}}, typed, [], None) if x["code"] == "password_masking_off")
+    assert f["severity"] == "high"
+    f = next(x for x in qc.check_session({"input": {"password_masking": "off"}}, [], [], None) if x["code"] == "password_masking_off")
+    assert f["severity"] == "warn"
+
+
+def test_subjects_are_keyed_per_recording_and_not_a_plain_hash(tmp_path):
+    from thinkaloud.review_inputs import fnv1a
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    qc.use_subject_key(tmp_path / "a")
+    s1 = qc.flag("possible_email", "high", "x", "zain.demo@example.com")["subject"]
+    assert s1 == qc.flag("possible_email", "high", "x", "zain.demo@example.com")["subject"]   # stable within a recording
+    assert s1 != fnv1a("zain.demo@example.com") and len(s1) == 16
+    qc.use_subject_key(tmp_path / "b")
+    assert qc.flag("possible_email", "high", "x", "zain.demo@example.com")["subject"] != s1
+    qc.use_subject_key(tmp_path / "a")                                  # the key persists in the folder
+    assert qc.flag("possible_email", "high", "x", "zain.demo@example.com")["subject"] == s1
+
+
+def test_email_split_by_a_typo_correction_is_found():
+    fix = {"t_start": 4.0, "t_end": 4.0, "action": {"type": "key", "key": "backspace"}, "flags": [], "reasoning": "",
+           "observations": {}, "context": {"window_title": "Sign in", "hwnd": 7}}
+    steps = [_t("john.smithh", 1.0), fix, _t("@example.com", 6.0)]
+    qc.check_steps(steps, [])
+    assert "possible_email" in {f["code"] for f in steps[2]["flags"]}
+
+
+def test_a_secret_inside_a_redirect_parameter_is_caught():
+    assert qc.sanitize_url("https://a.example/login?next=%2Faccount%3Ftoken%3Dabc123")[1]
+    assert qc.sanitize_url("https://a.example/cb?state=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig")[1]
+    assert not qc.sanitize_url("https://a.example/login?next=%2Faccount%3Ftab%3Dsettings")[1]

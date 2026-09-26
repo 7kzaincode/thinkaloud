@@ -32,7 +32,22 @@ async function readJson<T>(p: string): Promise<T> {
 async function writeJsonAtomic(p: string, data: unknown) {
   const tmp = `${p}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;  // unique per write
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf-8");
-  await fs.rename(tmp, p);
+  try {
+    // on Windows a rename fails while another process (antivirus, the export engine) briefly has
+    // the destination open: retry for a few seconds, like fsutil.replace_retry on the Python side
+    for (let i = 0; ; i++) {
+      try {
+        await fs.rename(tmp, p);
+        return;
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (i >= 40 || !["EPERM", "EBUSY", "EACCES"].includes(code ?? "")) throw e;
+        await new Promise((r) => setTimeout(r, 50 * (1 + Math.floor(i / 10))));
+      }
+    }
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
 }
 
 export async function sessionDir(id: string): Promise<string | null> {

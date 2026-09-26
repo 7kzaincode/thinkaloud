@@ -119,11 +119,24 @@ def provider() -> str:
     return "gemini" if gemini_key() else "anthropic"
 
 
+def model_for(prov: str) -> str:
+    """THINKALOUD_AI_MODEL_<PROVIDER> wins; the generic THINKALOUD_AI_MODEL only applies when it names a
+    model of that provider (so switching providers never sends a Claude model name to Gemini)."""
+    specific = os.environ.get(f"THINKALOUD_AI_MODEL_{prov.upper()}")
+    if specific:
+        return specific
+    generic = os.environ.get("THINKALOUD_AI_MODEL") or ""
+    family = {"anthropic": "claude", "gemini": "gemini"}.get(prov, prov)
+    if generic.lower().startswith(family):
+        return generic
+    return PROVIDERS.get(prov, PROVIDERS["anthropic"])["default_model"]
+
+
 def settings() -> dict:
     prov = provider()
     return {
         "provider": prov,
-        "model": os.environ.get("THINKALOUD_AI_MODEL") or PROVIDERS.get(prov, PROVIDERS["anthropic"])["default_model"],
+        "model": model_for(prov),
         "effort": os.environ.get("THINKALOUD_AI_EFFORT") or None,
         "timeout": float(os.environ.get("THINKALOUD_AI_TIMEOUT") or 120),
         "max_retries": int(os.environ.get("THINKALOUD_AI_MAX_RETRIES") or 2),

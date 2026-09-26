@@ -65,3 +65,14 @@ def test_offscreen_elements_are_ignored():
     doc = El("doc", (0, 0, 800, 600), [hidden, shown])
     el, ambiguous = make(doc)._descend(doc, 20, 20)
     assert el is shown and not ambiguous
+
+
+def test_focus_lookups_are_answered_before_queued_click_lookups():
+    w = uia.UIAWorker(lambda: 0.0)                      # not started: just look at the queue order
+    w.submit("point", 0.0, 1, 1)
+    w.submit("point", 0.1, 2, 2)
+    f = w.submit("focus", 0.2, epoch=1)
+    w.stop()
+    order = [w.q.get()[2] for _ in range(4)]
+    assert order[0][0] == f and order[0][1] == "focus"
+    assert [o[1] for o in order[1:3]] == ["point", "point"] and order[3] is None

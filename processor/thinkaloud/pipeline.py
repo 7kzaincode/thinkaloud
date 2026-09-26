@@ -129,6 +129,13 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
                         else:
                             s["observations"][key] = {"status": "missing", "file": None,
                                                       "reason": "video frame could not be decoded"}
+        for s in steps:
+            rel = s["action"].get("release") if s["action"].get("drag_problem") else None
+            aft = s["observations"]["after"]
+            if rel and aft.get("file") and (aft.get("t_capture_start") or 0) < rel["t"]:
+                # captured before the drop: it would show the drag in progress, labelled as the result
+                s["observations"]["after"] = {"status": "missing", "file": None,
+                                              "reason": "the drag ended after later input; no capture after the drop"}
         end = [c for c in stills if "end" in c.kinds]
         if end:
             c = end[-1]
@@ -148,6 +155,7 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
     for s in steps:
         s["flags"] = []
         s["screenshot"] = (s["observations"]["before"] or {}).get("file")  # 0.1-compatible field
+    qc.use_subject_key(session)
     qc.check_steps(steps, segments, pauses=pauses, legacy=legacy)
     qc.check_context(steps)
     qc.check_narration(steps, segments)
