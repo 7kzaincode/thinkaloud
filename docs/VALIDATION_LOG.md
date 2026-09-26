@@ -74,6 +74,8 @@ Pre-existing failures: none.
 | C37 | Packaged desktop journey after the round-2 fixes | `electron-builder --win --dir`, `node scripts/app_journey.mjs` | 17/17 (autosave with review-only payload, forced save before export, proxy on every route) |
 | C38 | Native E2E after the round-2 fixes | `python scripts/e2e_capture.py --report docs/evidence/e2e_report.json` | 27/27; sync 6/6 flashes, 200–206 ms, none early, 0 dropped |
 | C39 | Docker batch after the round-2 fixes | `docker compose build`; batch on 3 synthetic copies, the 0.1 fixture and a corrupt recording, run twice | 4 done / 1 failed (isolated, retried) in 10 s; second run 3 s, all up-to-date recordings skipped; no locks or temp files left |
+| C40 | Settings in the packaged app (AI provider and key storage) | `node scripts/settings_check.mjs` (throwaway profile, dummy key through the desktop bridge; nothing sent to a provider) | 9/9: provider choices and data-use note shown; key stored encrypted (file is not plain text), status reports booleans only; Automatic picks Gemini when only a Gemini key exists; the key never reaches the page; explicit Anthropic without its key is not configured; removing the key turns AI off. Report: `docs/evidence/settings_check_report.json` |
+| C41 | Installer | `electron-builder --win` | `desktop/dist/thinkaloud Setup 0.1.0.exe`, 210 MB, unsigned |
 
 ## Review findings
 
