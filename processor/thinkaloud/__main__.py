@@ -27,10 +27,12 @@ def main(argv=None) -> int:
     for d in args.sessions:
         if (d / "events.jsonl").exists():
             dirs.append(d)
-        else:
-            dirs += sorted(x for x in d.iterdir() if (x / "events.jsonl").exists())
+        elif d.is_dir():
+            dirs += sorted(e.parent for e in d.rglob("events.jsonl"))
     if not dirs:
-        print("no sessions found", file=sys.stderr)
+        print(f"no sessions found under {', '.join(map(str, args.sessions))} "
+              "(looking for folders containing events.jsonl). "
+              "Record one with: python recorder/record.py", file=sys.stderr)
         return 2
     if args.transcript and len(dirs) > 1:
         print("--transcript only works with a single session", file=sys.stderr)
