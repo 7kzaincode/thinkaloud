@@ -1,0 +1,208 @@
+{
+ "what": "Live AI review (engine review command) on a copy of samples/synthetic-flight",
+ "date": "2026-09-26",
+ "provider": "gemini",
+ "model": "gemini-3.5-flash",
+ "sdk": "google-genai 2.25.0",
+ "note": "gemini-3.8-flash / gemini-3.6-flash on the same free-tier key returned 503 overloaded and 429 quota errors during this session; both surfaced as typed errors (provider_unavailable, rate_limited).",
+ "results": {
+  "checklist": {
+   "result": {
+    "run": {
+     "id": "ai-20260926T060515-f8f4ba",
+     "kind": "checklist",
+     "at": "2026-09-26T06:05:15+00:00",
+     "provider": "gemini",
+     "model": "gemini-3.5-flash",
+     "status": "ok"
+    },
+    "drafts": [
+     {
+      "text": "The current screen is the checkout or booking review page."
+     },
+     {
+      "text": "The origin airport is listed as Toronto (YYZ)."
+     },
+     {
+      "text": "The destination airport is listed as San Francisco (SFO)."
+     },
+     {
+      "text": "The departure date is October 17."
+     },
+     {
+      "text": "The flight details show that the flight is nonstop."
+     },
+     {
+      "text": "The price and flight details match the cheapest nonstop flight option available for that date."
+     }
+    ]
+   }
+  },
+  "narration": {
+   "result": {
+    "run": {
+     "id": "ai-20260926T060546-bc56bc",
+     "kind": "narration",
+     "at": "2026-09-26T06:05:46+00:00",
+     "provider": "gemini",
+     "model": "gemini-3.5-flash",
+     "status": "ok"
+    },
+    "assessments": [
+     {
+      "uid": "s000001",
+      "verdict": "explains",
+      "explanation": "Explains that signing in is required to view member-only fares.",
+      "input_hash": "0989550e"
+     },
+     {
+      "uid": "s000002",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as typing the email is part of signing in.",
+      "input_hash": "b5067b01"
+     },
+     {
+      "uid": "s000023",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as clicking the password field is part of signing in.",
+      "input_hash": "3a16652f"
+     },
+     {
+      "uid": "s000024",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as typing the password is part of signing in.",
+      "input_hash": "f8fd5864"
+     },
+     {
+      "uid": "s000036",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as pressing enter submits the login form.",
+      "input_hash": "d4a1ae9e"
+     },
+     {
+      "uid": "s000037",
+      "verdict": "explains",
+      "explanation": "Explains that Pearson (YYZ) is targeted specifically using airport codes.",
+      "input_hash": "4ef0ddda"
+     },
+     {
+      "uid": "s000038",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as typing YYZ targets the specific airport.",
+      "input_hash": "320ec050"
+     },
+     {
+      "uid": "s000041",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as navigating to the next field is part of searching.",
+      "input_hash": "2e394ad1"
+     },
+     {
+      "uid": "s000042",
+      "verdict": "explains",
+      "explanation": "Carried reasoning applies as typing SFO is part of entering airport codes.",
+      "input_hash": "c83dd02f"
+     },
+     {
+      "uid": "s000045",
+      "verdict": "explains",
+      "explanation": "Explains that they are selecting the target flight date of the 17th.",
+      "input_hash": "756ad8f8"
+     },
+     {
+      "uid": "s000046",
+      "verdict": "partially_explains",
+      "explanation": "Carried reasoning about setting the date partially covers submitting the search.",
+      "input_hash": "f05df3ee"
+     },
+     {
+      "uid": "s000047",
+      "verdict": "explains",
+      "explanation": "Explains sorting by price to bypass default sponsored placements.",
+      "input_hash": "4450f49d"
+     },
+     {
+      "uid": "s000048",
+      "verdict": "explains",
+      "explanation": "Carried reasoning directly covers selecting the price-sort option.",
+      "input_hash": "875512bb"
+     },
+     {
+      "uid": "s000049",
+      "verdict": "explains",
+      "explanation": "Carried reasoning covers scrolling to view and assess the sorted prices.",
+      "input_hash": "ddd7effd"
+     },
+     {
+      "uid": "s000052",
+      "verdict": "explains",
+      "explanation": "Explains filtering for nonstop flights to satisfy the specific task requirements.",
+      "input_hash": "bba36359"
+     },
+     {
+      "uid": "s000053",
+      "verdict": "explains",
+      "explanation": "Identifies the selected flight as the target cheapest nonstop option.",
+      "input_hash": "ff42bb1c"
+     },
+     {
+      "uid": "s000055",
+      "verdict": "explains",
+      "explanation": "Explains proceeding to checkout because the selected option matches the criteria.",
+      "input_hash": "382627b7"
+     }
+    ]
+   }
+  },
+  "final_screen": {
+   "result": {
+    "run": {
+     "id": "ai-20260926T060648-522f40",
+     "kind": "final_screen",
+     "at": "2026-09-26T06:06:48+00:00",
+     "provider": "gemini",
+     "model": "gemini-3.5-flash",
+     "status": "ok"
+    },
+    "checks": [
+     {
+      "item_id": "c0",
+      "verdict": "supported",
+      "evidence": "The URL contains /checkout, the page title is \"Review your trip\", and there is a \"Continue to payment\" button.",
+      "input_hash": "4caae3b1"
+     },
+     {
+      "item_id": "c1",
+      "verdict": "supported",
+      "evidence": "The flight itinerary lists \"YYZ\" as the departure airport.",
+      "input_hash": "1bf9f972"
+     },
+     {
+      "item_id": "c2",
+      "verdict": "supported",
+      "evidence": "The flight itinerary lists \"SFO\" as the destination airport.",
+      "input_hash": "c3eb9411"
+     },
+     {
+      "item_id": "c3",
+      "verdict": "supported",
+      "evidence": "The flight details list the departure date as \"Fri Oct 17\".",
+      "input_hash": "e70b5214"
+     },
+     {
+      "item_id": "c4",
+      "verdict": "supported",
+      "evidence": "The flight segment clearly displays \"Nonstop\" next to the flight number.",
+      "input_hash": "20f8197c"
+     },
+     {
+      "item_id": "c5",
+      "verdict": "unknown",
+      "evidence": "The flight cost is shown as $312.00 CAD, but alternative flight options and their prices are not visible to compare.",
+      "input_hash": "a0106880"
+     }
+    ]
+   }
+  }
+ }
+}
