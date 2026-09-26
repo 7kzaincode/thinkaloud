@@ -135,11 +135,24 @@ def test_window_captured_at_input_time(tmp_path, monkeypatch):
     assert ev[0]["window"]["hwnd"] == 111
 
 
-def test_transient_focus_failure_is_retried_not_masked(tmp_path):
-    r = make(tmp_path, FakeUIA([{"status": "skipped_stale"}, OK_USER]))
-    type_str(r, "noise")
+def test_a_failed_focus_lookup_is_never_retried_into_unmasking(tmp_path):
+    """Review C round 2 N2: a retried answer could describe where the PAGE moved focus to."""
+    r = make(tmp_path, FakeUIA([{"status": "timeout"}, OK_USER]))
+    type_str(r, "4821")
     ev = [e for e in finish(r) if e["type"] == "key"]
-    assert "".join(e["key"] for e in ev) == "noise" and r.n_mask_unknown == 0
+    assert [e["key"] for e in ev] == ["•"] * 4
+
+
+def test_typing_after_a_password_click_stays_masked_until_the_user_moves_focus(tmp_path):
+    """A PIN pad that advances focus by itself: the focus lookup says 'not a password field'."""
+    pw_click = {"status": "ok", "role": "edit", "name": "PIN", "is_password": True}
+    r = make(tmp_path, FakeUIA([OK_USER], click_answer=pw_click))
+    r.on_click(10, 10, mouse.Button.left, True)
+    type_str(r, "4821")
+    r.on_press(keyboard.Key.tab)                                    # the user moves focus: masking ends
+    type_str(r, "ok")
+    keys = [e["key"] for e in finish(r) if e["type"] == "key"]
+    assert keys == ["•"] * 4 + ["tab", "o", "k"]
 
 
 def test_focus_that_moved_before_the_lookup_stays_masked(tmp_path):

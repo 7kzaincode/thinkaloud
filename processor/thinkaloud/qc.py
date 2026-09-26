@@ -33,9 +33,12 @@ Session checks
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
 import re
-
-from .review_inputs import fnv1a
+import secrets
+from pathlib import Path
 
 IDLE_GAP = 20.0
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -43,10 +46,33 @@ SECRET_WORDS = re.compile(r"\b(password|passcode|passphrase|pin|secret|api key|t
 REDACTED = "[REDACTED]"
 
 
+_subject_key: bytes = b""
+
+
+def use_subject_key(session) -> None:
+    """Privacy-flag subjects are keyed hashes (HMAC-SHA256). The key is random per recording and
+    lives only in the recording folder (.subject-key): a subject can be compared between
+    processing runs of that recording, but it can't be used to guess the typed value (a plain
+    hash of an email or password could be brute-forced). Exports never contain subjects."""
+    global _subject_key
+    p = Path(session) / ".subject-key"
+    try:
+        fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, secrets.token_bytes(32))
+        os.close(fd)
+    except FileExistsError:
+        pass
+    _subject_key = p.read_bytes()
+
+
+def _subject(text: str) -> str:
+    return hmac.new(_subject_key or secrets.token_bytes(32), text.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
+
+
 def flag(code: str, severity: str, detail: str, subject: str | None = None) -> dict:
     f = {"code": code, "severity": severity, "detail": detail, "source": "qc"}
     if subject is not None:
-        f["subject"] = fnv1a(subject)
+        f["subject"] = _subject(subject)
     return f
 
 
@@ -181,9 +207,13 @@ def _window_key(s: dict):
     return ctx.get("hwnd") or ctx.get("window_title") or ctx.get("process")
 
 
+SPLIT_WINDOW_S = 60.0
+
+
 def check_split_emails(steps: list[dict]) -> None:
-    """An address typed in two bursts (a pause over type_gap_s splits typing into steps) is
-    still an address: check consecutive typing steps in the same window as one text."""
+    """An address typed in pieces (a pause over type_gap_s splits typing into steps; a click or
+    an arrow key in between) is still an address: the typing steps in one window, each within
+    SPLIT_WINDOW_S of the previous one, are checked as one text."""
     run: list[dict] = []
 
     def scan():
@@ -206,11 +236,22 @@ def check_split_emails(steps: list[dict]) -> None:
 
     for st in steps:
         a = st["action"]
-        if a["type"] == "type" and not a.get("masked_chars") and run and _window_key(run[-1]) == _window_key(st):
+        if any(f["code"] == "possible_email" for f in st["flags"]):
+            # a complete address of its own: already flagged; joining it to later typing would only
+            # "find" the same address again and flag unrelated text after it
+            scan()
+            run = []
+            continue
+        if a["type"] != "type" or a.get("masked_chars"):
+            if run and _window_key(st) not in (None, _window_key(run[-1])):
+                scan()
+                run = []
+            continue  # other input in the same window doesn't end the run
+        if run and _window_key(run[-1]) == _window_key(st) and st["t_start"] - run[-1]["t_end"] <= SPLIT_WINDOW_S:
             run.append(st)
         else:
             scan()
-            run = [st] if a["type"] == "type" and not a.get("masked_chars") else []
+            run = [st]
     scan()
 
 
@@ -256,8 +297,9 @@ def check_session(meta: dict, steps: list[dict], segments: list[dict],
                         f"{meta['input']['masked_focus_unknown']} typed character(s) masked because the focused "
                         "field could not be checked; the typed text for those steps is unknown."))
     masking = (meta.get("input") or {}).get("password_masking")
+    typed = any(s["action"]["type"] == "type" and (s["action"].get("text") or "").strip("•") for s in steps)
     if not legacy and masking in ("off", "unavailable"):
-        out.append(flag("password_masking_off", "warn",
+        out.append(flag("password_masking_off", "high" if typed else "warn",
                         "Password fields could not be detected (UI Automation "
                         f"{'was turned off' if masking == 'off' else 'did not start'}): anything typed into a password "
                         "field was stored as typed. QC redacts likely passwords, but check the typed text."))
@@ -281,9 +323,11 @@ def check_session(meta: dict, steps: list[dict], segments: list[dict],
     return out
 
 
-# parameter names are compared lowercased with separators removed (accessToken == access_token)
-SENSITIVE_PARTS = ("token", "secret", "passw", "pwd", "apikey", "accesskey", "privatekey", "session", "sessid",
-                   "jwt", "signature", "credential", "authcode", "authorization")
+# parameter names are compared lowercased with separators removed (accessToken == access_token);
+# a name is secret-like when it ENDS with one of these (so "sessionTitle" and "tokenizer" are not)
+SENSITIVE_ENDINGS = ("token", "secret", "password", "passwd", "pwd", "apikey", "accesskey", "privatekey",
+                     "sessionid", "sessid", "session", "jwt", "signature", "credential", "credentials", "verifier",
+                     "authcode", "authorization", "samlresponse", "samlrequest", "rlkey", "secretkey", "clientkey")
 SENSITIVE_NAMES = {"auth", "code", "sig", "key", "pin", "otp", "sid", "pass", "hash", "ticket"}
 TOKEN_PATH_BEFORE = {"reset", "resetpassword", "passwordreset", "verify", "verification", "confirm", "activate",
                      "activation", "magic", "magiclink", "invite", "invitation", "token", "unsubscribe", "auth", "login"}
@@ -292,10 +336,16 @@ JWT_RE = re.compile(r"^eyJ[\w-]+\.[\w-]+\.[\w-]*$")
 
 def _sensitive_name(name: str) -> bool:
     n = re.sub(r"[^a-z0-9]", "", name.lower())
-    return n in SENSITIVE_NAMES or any(p in n for p in SENSITIVE_PARTS)
+    return n in SENSITIVE_NAMES or n.endswith(SENSITIVE_ENDINGS)
 
 
-def sanitize_url(url: str) -> tuple[str, bool]:
+def _token_like(seg: str) -> bool:
+    """Random-looking: letters and digits mixed (a UUID, a hex or base64 token, "7F3K9Q"), not words."""
+    return (len(seg) >= 6 and re.fullmatch(r"[A-Za-z0-9_-]+", seg) is not None
+            and any(c.isdigit() for c in seg) and any(c.isalpha() for c in seg))
+
+
+def sanitize_url(url: str, _depth: int = 0) -> tuple[str, bool]:
     """(url with secrets removed, whether anything sensitive was found). Query and fragment
     parameters with secret-like names, tokens in magic-link style paths, and JWTs anywhere in
     the path are replaced."""
@@ -303,17 +353,22 @@ def sanitize_url(url: str) -> tuple[str, bool]:
 
     u = urlsplit(url)
     found = False
+    netloc = u.netloc
+    if "@" in netloc:  # user:password@host
+        netloc, found = netloc.rsplit("@", 1)[1], True
     params = parse_qsl(u.query, keep_blank_values=True) + parse_qsl(u.fragment, keep_blank_values=True)
-    if any(_sensitive_name(k) for k, _ in params):
+    if any(_sensitive_name(k) or JWT_RE.match(v or "") for k, v in params):
         found = True
+    elif _depth < 2 and any(("?" in v or "#" in v or "@" in v) and sanitize_url(v, _depth + 1)[1] for _, v in params):
+        found = True  # e.g. ?next=/account?token=... (a redirect target carrying a secret)
     segs = u.path.split("/")
     for i, seg in enumerate(segs):
         prev = re.sub(r"[^a-z0-9]", "", segs[i - 1].lower()) if i else ""
-        if JWT_RE.match(seg) or (prev in TOKEN_PATH_BEFORE and len(seg) >= 16):
+        if JWT_RE.match(seg) or (prev in TOKEN_PATH_BEFORE and _token_like(seg)):
             segs[i], found = REDACTED, True
     if not found:
         return url, False
-    return urlunsplit((u.scheme, u.netloc, "/".join(segs), REDACTED if u.query else "",
+    return urlunsplit((u.scheme, netloc, "/".join(segs), REDACTED if u.query else "",
                        REDACTED if u.fragment else "")), True
 
 

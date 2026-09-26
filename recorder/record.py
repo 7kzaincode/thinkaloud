@@ -73,8 +73,6 @@ STILL_QUEUE_MAX = 6          # PNG encodes waiting; bounds memory (~15 MB per 14
 VIDEO_QUEUE_MAX = 8          # frames waiting for the encoder; overflow drops frames, not sync
 UIA_WAIT_S = 1.5             # how long the writer waits for a UI Automation answer
 UIA_WAIT_STOPPING_S = 0.2    # ... once stop was requested (don't hang the shutdown)
-RETRY_FOCUS = {"timeout", "error", "skipped_stale"}  # transient: ask again rather than mask the burst
-FOCUS_RETRIES = 3            # per typing burst
 DRAG_MIN_PX = 5              # press-to-release distance that makes a click a drag
 WHEEL_DELTA = 120
 WM_MOUSEWHEEL, WM_MOUSEHWHEEL = 0x020A, 0x020E
@@ -537,7 +535,7 @@ class Recorder:
                 self.burst_focus_rid = self.uia.submit("focus", t, epoch=epoch)
             if cls == "key":
                 ev["_focus"] = self.burst_focus_rid
-                ev["_epoch"] = epoch
+        ev["_epoch"] = epoch
         self.inbox.put(ev)
 
     def mouse_filter(self, msg, data):
@@ -641,8 +639,8 @@ class Recorder:
     def writer_loop(self) -> None:
         events = open(self.out / "events.jsonl", "w", encoding="utf-8")
         focus_cache: dict[int, dict] = {}
-        retries: dict[int, int] = {}
         password_field = False  # last click landed in a password field
+        password_epoch = None   # ... and no focus-moving input (click, Tab, Enter, shortcut) happened since
         seq = 0
         while True:
             ev = self.inbox.get()
@@ -664,11 +662,12 @@ class Recorder:
                     ev["window"] = win
                 wait = UIA_WAIT_STOPPING_S if self.stop_event.is_set() else UIA_WAIT_S
                 rid = ev.pop("_uia", None)
+                epoch = ev.pop("_epoch", None)
                 if rid is not None:
                     ev["target"] = self.uia.result(rid, wait)
                     password_field = bool(ev["target"].get("is_password"))
+                    password_epoch = epoch if password_field else None
                 frid = ev.pop("_focus", None)
-                epoch = ev.pop("_epoch", None)
                 if kind == "key":
                     focus = None
                     if frid is not None:
@@ -677,19 +676,18 @@ class Recorder:
                             if len(focus_cache) > 64:
                                 focus_cache.pop(next(iter(focus_cache)))
                         focus = focus_cache[frid]
-                        # a failed lookup is asked again (a few times per burst) instead of masking the
-                        # whole burst; if focus has moved since, the answer comes back focus_moved
-                        if (focus.get("status") in RETRY_FOCUS and retries.get(frid, 0) < FOCUS_RETRIES
-                                and epoch is not None):
-                            retries[frid] = retries.get(frid, 0) + 1
-                            again = self.uia.result(self.uia.submit("focus", ev["t"], epoch=epoch), wait)
-                            if again.get("status") == "ok":
-                                focus_cache[frid] = focus = again
+                    # UI Automation answers can only ADD masking. A focus answer is never retried (a
+                    # later answer may describe where the page moved focus to, e.g. auto-advancing PIN
+                    # boxes), and typing right after clicking a password field stays masked until the
+                    # user moves focus themselves, whatever a focus lookup says.
                     reason = None
+                    clicked_password = password_epoch is not None and epoch == password_epoch
                     if focus and focus.get("status") == "ok":
                         ev["focus"] = {k: focus.get(k) for k in ("role", "name", "is_password", "status")}
                         if focus.get("is_password"):
                             reason = "password field (UI Automation IsPassword)"
+                        elif clicked_password:
+                            reason = "typed after clicking a password field"
                     elif focus is not None and focus.get("status") == "unavailable":
                         # UI Automation never started: same as --no-uia (no field-based masking; QC flags it)
                         self.masking_unavailable = True
@@ -790,6 +788,15 @@ class Recorder:
             self.uia = UIAWorker(self.now, focus_epoch=lambda: self.focus_epoch)
             self.uia.start()
             self.uia.ready.wait(5)
+            if self.uia.available is False:
+                say("warning", f"[warn] UI Automation unavailable ({self.uia.error}): password fields can't be "
+                    "detected, so typed passwords are recorded as typed", short="passwords not masked",
+                    message="UI Automation did not start: password fields can't be detected. Don't type passwords "
+                            "while recording (use Pause).")
+        else:
+            say("warning", "[warn] --no-uia: password fields can't be detected; typed passwords are recorded as typed",
+                short="passwords not masked",
+                message="UI Automation is off: password fields can't be detected. Don't type passwords while recording.")
         self.stills.start()
         if self.video is not None:
             self.video.start()

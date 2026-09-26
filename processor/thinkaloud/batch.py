@@ -141,35 +141,51 @@ class Job:
                 os.write(fd, json.dumps({"job_id": self.id, "at": now_iso()}).encode())
                 os.close(fd)
                 return True
+            except PermissionError:
+                # Windows: the lock is being deleted by another job right now (delete pending)
+                return False
             except FileExistsError:
                 try:
                     age = time.time() - lock.stat().st_mtime
                 except FileNotFoundError:
                     continue
+                except PermissionError:
+                    return False
                 if age <= STALE_S:
                     return False
-                # the holder stopped heart-beating: take over. Renaming to a unique name is atomic,
-                # so when two jobs see the same stale lock only one of them moves it away; the other
-                # then finds the winner's fresh lock (or nothing, and retries the exclusive create).
-                grave = session / f"processing.lock.stale-{os.getpid()}-{secrets.token_hex(3)}"
-                try:
-                    os.rename(lock, grave)
-                except OSError:
-                    continue
-                try:
-                    fresh = time.time() - grave.stat().st_mtime <= STALE_S
-                except OSError:
-                    fresh = False
-                if fresh:
-                    # between our check and the rename another job replaced the stale lock with its
-                    # own: give it back (rename fails if a lock exists again, which is also fine)
-                    try:
-                        os.rename(grave, lock)
-                    except OSError:
-                        grave.unlink(missing_ok=True)
+                # the holder stopped heart-beating: take over, one job at a time. The takeover itself
+                # is guarded by a second exclusive lock, so the stale check, the removal and the new
+                # exclusive create can't interleave between jobs.
+                if not self._takeover(session, lock):
                     return False
-                grave.unlink(missing_ok=True)
         return False
+
+    def _takeover(self, session: Path, lock: Path) -> bool:
+        """Remove a stale processing.lock while holding processing.takeover; False if another job
+        is taking over (or the lock turned out to be live)."""
+        guard = session / "processing.takeover"
+        try:
+            fd = os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+        except PermissionError:  # Windows: another job's guard is being deleted right now
+            return False
+        except FileExistsError:
+            try:  # a takeover guard left by a crashed job
+                if time.time() - guard.stat().st_mtime > STALE_S:
+                    guard.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
+        try:
+            try:
+                if time.time() - lock.stat().st_mtime <= STALE_S:
+                    return False  # someone else took over before we got the guard
+            except FileNotFoundError:
+                return True
+            lock.unlink(missing_ok=True)
+            return True
+        finally:
+            guard.unlink(missing_ok=True)
 
     def release(self, session: Path) -> None:
         try:

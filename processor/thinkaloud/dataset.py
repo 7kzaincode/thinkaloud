@@ -417,6 +417,16 @@ def cross_check(rec: dict, c: dict) -> list[str]:
                 if 0 <= v[0] < size[0] and 0 <= v[1] < size[1] and inp.get(k) != v:
                     E.append(f"{rid} (claude): {tid} {k} {inp.get(k)} does not match the dataset action "
                              f"scaled by {scale} ({v})")
+            if name == "type" and a.get("type") == "type" and not a.get("redacted") and inp.get("text") != a.get("text"):
+                E.append(f"{rid} (claude): {tid} types {str(inp.get('text'))[:40]!r}, the dataset step typed "
+                         f"{str(a.get('text'))[:40]!r}")
+        if a.get("type") == "scroll":
+            said = [(uses.get(t) or {}).get("input", {}).get("scroll_direction") for t in m.get("tool_use_ids") or []
+                    if (uses.get(t) or {}).get("name") == "scroll"]
+            runs = [r.get("direction") for r in a.get("runs") or [] if r.get("direction") != "none"
+                    and _num(r.get("amount")) and r["amount"] >= 0.5]
+            if said and said != runs:
+                E.append(f"{rid} (claude): step {m.get('uid')} scrolls {said}, the dataset step scrolled {runs}")
     return E
 
 
@@ -447,8 +457,12 @@ def validate_bundle(path) -> dict:
             E.append(f"file {f['path']} does not match its manifest checksum")
     for p in base.rglob("*"):
         if p.is_file() and p.name != "manifest.json" and p.relative_to(base).as_posix() not in listed:
-            W.append(f"file {p.relative_to(base).as_posix()} is not listed in the manifest")
+            E.append(f"file {p.relative_to(base).as_posix()} is not listed in the manifest (not checksummed)")
     for r in man.get("recordings", []):
+        for k in ("dataset", "claude"):
+            if r.get(k) and r[k] not in listed:
+                E.append(f"{r.get('id')}: {k} file {str(r[k])[:80]!r} is not a checksummed file of this bundle")
+                r = {**r, k: None}
         if r.get("dataset"):
             dp = base / r["dataset"]
             if not dp.exists():

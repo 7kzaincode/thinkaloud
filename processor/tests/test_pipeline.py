@@ -306,3 +306,20 @@ def test_description_of_unrepresentable_drags_ambiguous_targets_and_ctrl_plus():
     ok = {"status": "ok", "role": "button", "name": "Buy", "latency_ms": 20, "ambiguous": True}
     assert describe({"action": {"type": "click", "x": 5, "y": 6, "button": "left"}, "target": ok}) == "Clicked at (5, 6)"
     assert key_label("ctrl++") == "Ctrl++" and key_label("ctrl+shift+t") == "Ctrl+Shift+T"
+
+
+def test_marked_drag_has_no_after_state_from_before_the_drop(sample):
+    evs = [json.loads(l) for l in (sample / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    k = next(i for i, e in enumerate(evs) if e["type"] == "click" and i + 1 < len(evs) and evs[i + 1]["t"] - e["t"] > 1.5)
+    press, nxt = evs[k], evs[k + 1]
+    t_scroll = round(press["t"] + 0.3, 4)
+    t_rel = round(nxt["t"] - 0.2, 4)                                   # the drop comes after the scroll
+    extra = [{"t": t_scroll, "type": "scroll", "x": press["x"], "y": press["y"], "dx": 0.0, "dy": -1.0, "raw": -120,
+              "unit": "notch", "seq": 10_000, "window": press.get("window")},
+             {"t": t_rel, "type": "release", "x": press["x"] + 200, "y": press["y"], "button": "left", "seq": 10_001}]
+    lines = [json.dumps(e) for e in sorted(evs + extra, key=lambda e: e["t"])]
+    (sample / "events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    t = process(sample, log=lambda *_: None)
+    st = next(s for s in t["steps"] if s["action"].get("drag_problem"))
+    aft = st["observations"]["after"]
+    assert aft["status"] == "missing" and "drop" in aft["reason"]

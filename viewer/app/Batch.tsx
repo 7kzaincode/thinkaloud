@@ -85,13 +85,24 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allShownSelected = shown.length > 0 && shown.every((s) => selected.has(s.id));
 
+  const [starting, setStarting] = useState(false);
   const process = async (ids: string[]) => {
+    if (starting) return;
+    setStarting(true);
     setMsg(null);
-    const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, concurrency, force }) })
-      .catch(() => null);
-    const j = r ? await r.json().catch(() => ({ error: `HTTP ${r.status}` })) : { error: "network error" };
-    setMsg(r?.ok ? `Started job ${j.job_id} for ${ids.length} recording(s)` : `Could not start: ${j.error}`);
-    setTimeout(refresh, 500);
+    try {
+      const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, concurrency, force }) })
+        .catch(() => null);
+      const j = r ? await r.json().catch(() => ({ error: `HTTP ${r.status}` })) : { error: "network error" };
+      const busy: string[] = Array.isArray(j.busy) ? j.busy : [];
+      const n = ids.length - busy.length;
+      setMsg(r?.ok
+        ? `Started job ${j.job_id} for ${n} recording(s)${busy.length ? `; ${busy.length} already being processed` : ""}`
+        : `Could not start: ${j.error}${busy.length ? ` (${busy.length} already being processed)` : ""}`);
+    } finally {
+      setStarting(false);
+      setTimeout(refresh, 500);
+    }
   };
 
   const exportable = [...selected].filter((id) => rows.find((r) => r.id === id)?.processed);
@@ -138,11 +149,11 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
         <label className="small">Workers <select value={concurrency} onChange={(e) => setConcurrency(+e.target.value)} aria-label="Concurrent workers">
           {[1, 2, 3, 4].map((n) => <option key={n}>{n}</option>)}</select></label>
         <label className="small"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> reprocess up-to-date</label>
-        <button className="btn" disabled={!selectable.length} onClick={() => process(selectable)}
+        <button className="btn" disabled={!selectable.length || starting} onClick={() => process(selectable)}
           title={selectable.length < selected.size ? "Recordings already being processed are left out" : undefined}>
           Process selected ({selectable.length})
         </button>
-        <button className="btn" disabled={!newIds.length} onClick={() => process(newIds)}>Process all new ({newIds.length})</button>
+        <button className="btn" disabled={!newIds.length || starting} onClick={() => process(newIds)}>Process all new ({newIds.length})</button>
         <button className="btn" disabled={!exportable.length} onClick={() => setExporting(true)}>Export selected ({exportable.length})</button>
       </div>
       {msg && <div className="small faint" aria-live="polite">{msg}</div>}

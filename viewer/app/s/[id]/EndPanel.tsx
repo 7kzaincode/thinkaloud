@@ -106,7 +106,8 @@ export default function EndPanel({ id, t, edit, aiStatus }: {
             <label className="consent">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
               <span>OK to send parts of this recording to {aiStatus.provider_name || "the AI provider"} ({aiStatus.model}). Nothing is sent
-                until you click a button below.</span>
+                until you click a button below.{aiStatus.provider === "gemini" &&
+                  " Google may use content sent with free-tier (unpaid) Gemini keys to improve its products."}</span>
             </label>
             {(["checklist", "final_screen", "narration"] as Kind[]).map((k) => (
               <div key={k} className="ai-run">

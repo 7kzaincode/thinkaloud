@@ -388,7 +388,12 @@ function afterRecording(saved) {
   const lock = path.join(saved.dir, "processing.lock");
   try {
     fs.writeFileSync(lock, JSON.stringify({ job_id: "desktop", at: new Date().toISOString() }), { flag: "wx" });
-  } catch { /* a fresh recording has no lock; if one exists, processing below still runs once */ }
+  } catch {
+    // someone else (a batch job) is processing it: don't run a second processor or touch their lock
+    send("process", { event: "error", session_id: saved.session_id,
+      message: "This recording is already being processed by a batch job; it will appear on the Recordings page when done." });
+    return;
+  }
   writeStatus(saved.dir, { state: "running", attempts: 1, error: null, started_at: new Date().toISOString() });
   const beat = setInterval(() => {
     writeStatus(saved.dir, {});
@@ -462,6 +467,9 @@ app.on("before-quit", () => {
   quitting = true;
   stopMeter();
   if (recorder) recorder.stdin.write(JSON.stringify({ cmd: "stop" }) + "\n");
+});
+// after every window has closed (and its page had the chance to save): only then stop the server
+app.on("will-quit", () => {
   if (viewer) viewer.kill();
 });
 app.on("window-all-closed", () => app.quit());

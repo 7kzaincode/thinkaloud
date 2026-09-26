@@ -16,3 +16,9 @@ export function localHost(hostHeader: string | null): boolean {
 export function crossSite(secFetchSite: string | null): boolean {
   return secFetchSite === "cross-site" || secFetchSite === "same-site";
 }
+
+/** A link clicked on another site that opens a viewer page in the tab: the other site can't read it. */
+export function topLevelPageVisit(req: { method: string; headers: Headers }, pathname: string): boolean {
+  return req.method === "GET" && !pathname.startsWith("/api/") && !pathname.startsWith("/_next/")
+    && req.headers.get("sec-fetch-mode") === "navigate" && req.headers.get("sec-fetch-dest") === "document";
+}

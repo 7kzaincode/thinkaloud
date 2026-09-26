@@ -205,7 +205,10 @@ class UIAWorker(threading.Thread):
         self.focus_epoch = focus_epoch
         self.timeout_ms = timeout_ms
         self.max_queue_age_s = max_queue_age_s
-        self.q: queue.Queue = queue.Queue()
+        # focus lookups go ahead of queued click lookups: a slow click lookup (descend, document walk)
+        # must not delay a focus answer until the user has pressed Tab and made it "focus_moved"
+        self.q: queue.PriorityQueue = queue.PriorityQueue()
+        self._order = 0
         self.results: dict[int, dict] = {}
         self.cv = threading.Condition()
         self.available: bool | None = None
@@ -221,7 +224,7 @@ class UIAWorker(threading.Thread):
             uia = None
         self.ready.set()
         while True:
-            item = self.q.get()
+            _prio, _n, item = self.q.get()
             if item is None:
                 return
             rid, kind, t_event, args, epoch = item
@@ -258,7 +261,10 @@ class UIAWorker(threading.Thread):
         with self._lock:
             UIAWorker._next += 1
             rid = UIAWorker._next
-        self.q.put((rid, kind, t_event, args, epoch))
+        with self._lock:
+            self._order += 1
+            n = self._order
+        self.q.put((0 if kind == "focus" else 1, n, (rid, kind, t_event, args, epoch)))
         return rid
 
     def result(self, rid: int, timeout_s: float = 1.5) -> dict:
@@ -272,4 +278,7 @@ class UIAWorker(threading.Thread):
             return self.results.pop(rid)
 
     def stop(self) -> None:
-        self.q.put(None)
+        with self._lock:
+            self._order += 1
+            n = self._order
+        self.q.put((2, n, None))

@@ -25,9 +25,13 @@ export async function PUT(req: Request, { params }: Ctx) {
     const r = await saveReview((await params).id, t);
     if (!r.ok) return NextResponse.json({ error: "not found" }, { status: 404 });
     // when the recording was reprocessed, the client adopts the rebased version (edits carried over)
-    return NextResponse.json({ ok: true, base_hash: r.base_hash, rebased: r.rebased, trajectory: r.rebased ? r.trajectory : undefined });
+    const adopt = new URL(req.url).searchParams.get("adopt") === "1";
+    return NextResponse.json({ ok: true, base_hash: r.base_hash, rebased: r.rebased,
+      trajectory: r.rebased || adopt ? r.trajectory : undefined });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 400 });
+    // bad input is the client's problem (400, not retried); a file error is ours and transient (503, retried)
+    const io = typeof (e as NodeJS.ErrnoException)?.code === "string";
+    return NextResponse.json({ error: String(e) }, { status: io ? 503 : 400 });
   }
 }
 
