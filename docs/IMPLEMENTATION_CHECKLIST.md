@@ -52,7 +52,7 @@ test names refer to `processor/tests/` and `viewer/lib/review.test.ts`.
 |---|---|---|
 | I1 | Full journey task → record → process → inspect → replay → AI → decisions → batch → export | VERIFIED: packaged desktop app in one run, record → process → review → replay → checklist/outcome → export → download → reload → recordings page, 17/17 (C30, C37); AI suggestions and decisions live in the UI via Gemini (C35); batch (C15, C28, C39) |
 | I2 | Persistence across reloads; reprocessing keeps human edits | VERIFIED (C12 autosave; C15 rebase) |
-| I3 | Clear recording state, stop and pause, password masking | VERIFIED (masking by click and by Tab, fail-closed: C31; pause C23) |
+| I3 | Clear recording state, stop and pause, password masking | VERIFIED (masking by click and by Tab, fail-closed: C31, C38; pause C23). Masking rules changed after the last native run (answers only add masking, dedicated focus worker): unit tests with a fake and a real UI Automation client (C44) |
 | I4 | Independent review A (correctness/data integrity) | VERIFIED: 19 findings, all fixed with tests or checks (VALIDATION_LOG "Review A") |
 | I5 | Independent review B (product/adversarial) | VERIFIED: 20 findings, all fixed with tests or checks (VALIDATION_LOG "Review B") |
-| I6 | Re-review of the fixes and the final integrated state | Round 2 (A, B re-review + fresh reviewer C): 28 merged findings, all fixed with tests or checks (VALIDATION_LOG "Round 2"); round 3 on the final diff: IN PROGRESS |
+| I6 | Re-review of the fixes and the final integrated state | VERIFIED: four rounds with three reviewers (A correctness, B product/adversarial, C fresh context). Round 2: 28 merged findings; round 3: 14; final round: 6 (+1 found while verifying); all fixed with tests or reproducible checks (VALIDATION_LOG "Review findings"). The final round's fixes were verified by tests and targeted checks, not re-reviewed |
