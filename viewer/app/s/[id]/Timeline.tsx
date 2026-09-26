@@ -13,8 +13,11 @@ function worst(s: Step): "high" | "warn" | "info" | null {
 }
 
 export default function Timeline({
-  t, sel, onSelect,
-}: { t: Trajectory; sel: number | "end"; onSelect: (s: number | "end") => void }) {
+  t, sel, onSelect, playhead, activeIdx, onSeek,
+}: {
+  t: Trajectory; sel: number | "end"; onSelect: (s: number | "end") => void;
+  playhead?: number | null; activeIdx?: number | null; onSeek?: (t: number) => void;
+}) {
   const dur = Math.max(t.duration_s ?? 0, ...t.steps.map((s) => s.t_end), ...t.transcript.map((g) => g.t_end), 1);
   const pct = (x: number) => `${(x / dur) * 100}%`;
   const selStep = typeof sel === "number" ? t.steps[sel] : null;
@@ -25,9 +28,18 @@ export default function Timeline({
     return Math.max(prevEnd, s.t_end);
   }, 0);
 
+  const seekFromEvent = (e: React.MouseEvent<SVGRectElement>) => {
+    if (!onSeek) return;
+    const box = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
+    onSeek(Math.max(0, Math.min(dur, ((e.clientX - box.left) / box.width) * dur)));
+  };
+
   return (
     <div className="tl">
       <svg role="group" aria-label="Session timeline">
+        {onSeek && <rect x="0" y="0" width="100%" height="56" fill="transparent" style={{ cursor: "crosshair" }} onClick={seekFromEvent}>
+          <title>Click to seek the replay</title>
+        </rect>}
         <defs>
           <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="6" stroke="var(--warn)" strokeWidth="1.5" opacity="0.45" />
@@ -53,6 +65,7 @@ export default function Timeline({
         {t.steps.map((s, i) => {
           const w = worst(s);
           const active = sel === i;
+          const playing = activeIdx === i;
           const color = active ? "var(--accent)" : w === "high" ? "var(--high)" : w === "warn" ? "var(--warn)" : "var(--ink)";
           return (
             <g key={s.id} className="tick" onClick={() => onSelect(i)}>
@@ -61,6 +74,7 @@ export default function Timeline({
               <rect x={pct(s.t_start)} y={active ? 20 : 24} width={pct(Math.max(s.t_end - s.t_start, dur * 0.0025))}
                 height={active ? 30 : 22} rx="1.5" fill={color} opacity={w || active ? 1 : 0.7} />
               {w === "high" && !active && <circle cx={pct(s.t_start)} cy="20" r="2.5" fill="var(--high)" />}
+              {playing && <rect x={pct(s.t_start)} y="52" width={pct(Math.max(s.t_end - s.t_start, dur * 0.0025))} height="3" fill="var(--ok)" />}
               <title>{`#${s.id} ${fmtTime(s.t_start)} ${s.action.type}${s.flags.length ? " · " + s.flags.map((f) => f.code).join(", ") : ""}`}</title>
             </g>
           );
@@ -70,6 +84,13 @@ export default function Timeline({
           <line x1="100%" x2="100%" y1="18" y2="52" stroke={sel === "end" ? "var(--accent)" : "var(--ink)"} strokeWidth="2" />
           <title>End state</title>
         </g>
+        {/* playhead */}
+        {playhead != null && (
+          <g pointerEvents="none">
+            <line x1={pct(playhead)} x2={pct(playhead)} y1="0" y2="56" stroke="var(--ok)" strokeWidth="1.5" />
+            <circle cx={pct(playhead)} cy="2" r="3" fill="var(--ok)" />
+          </g>
+        )}
         {/* axis */}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
           <text key={f} x={`${f * 100}%`} y="63" fontSize="10" fill="var(--faint)"
@@ -81,6 +102,7 @@ export default function Timeline({
       <div className="tl-legend">
         <span><i style={{ background: "var(--muted)", opacity: 0.45 }} />narration</span>
         <span><i style={{ background: "var(--ink)" }} />step</span>
+        {playhead != null && <span><i style={{ background: "var(--ok)" }} />replay position</span>}
         <span><i style={{ background: "var(--warn)" }} />needs attention</span>
         <span><i style={{ background: "var(--high)" }} />privacy</span>
         <span><i style={{ background: "repeating-linear-gradient(45deg, var(--warn) 0 1.5px, transparent 1.5px 5px)", opacity: 0.7 }} />idle &gt; {IDLE}s</span>

@@ -12,6 +12,7 @@ Step checks
   possible_secret     typed text looks like a password (see looks_like_password)
   email_in_screenshot OCR found an email address in the step's screenshot (--ocr)
   masked_input        (info) the recorder masked typed characters in a password field
+  redacted_value_on_screen (high) a redacted typed value may still be visible in screenshots
   missing_after_state (warn) no screen was captured between this action and the next
   stale_before_state  (info) the "before" screen is older than expected
 
@@ -151,6 +152,10 @@ def redact(steps: list[dict]) -> int:
         if s["action"]["type"] == "type" and codes & {"possible_email", "possible_secret"}:
             s["action"]["text"] = REDACTED
             s["action"]["redacted"] = True
+            s["flags"].append(flag(
+                "redacted_value_on_screen", "high",
+                "The typed value was removed from the action, but the field (and so the after-state and later "
+                "screenshots) may still show it. Check the images before sharing; run with --ocr to scan for emails."))
             n += 1
     return n
 
@@ -188,6 +193,7 @@ def summarize(steps: list[dict], session_flags: list[dict]) -> dict:
         ("idle_gap", "idle gap"),
         ("possible_secret", "possible secret"),
         ("possible_email", "typed email"),
+        ("redacted_value_on_screen", "redacted value on screen"),
         ("email_in_screenshot", "email on screen"),
         ("missing_after_state", "missing after-state"),
         ("masked_input", "masked input"),

@@ -1,3 +1,4 @@
 av==18.1.0
 faster-whisper==1.2.1
 numpy==2.5.3
+pillow==12.3.0

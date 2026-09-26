@@ -24,8 +24,9 @@ after(step):
     status "missing"   the next action began before any new capture
 
 Recorder 0.1 recordings have one screenshot per click/Enter, grabbed
-asynchronously when the action happened. Those become before.status "at_action"
-(may include early effects of the action) and after.status "missing".
+asynchronously when the action happened (no grab end time). Those become
+before.status "at_action" (the step's own action; may include early effects) or
+"legacy_earlier_action" (an earlier action's screenshot), and after.status "missing".
 Nothing is ever fabricated: a missing image stays missing.
 """
 from __future__ import annotations
@@ -194,9 +195,9 @@ def legacy_assign(steps: list[dict], events: list[dict]) -> None:
                       "reason": "recorder 0.1 grabbed this when the action happened; "
                                 "it may show early effects of the action"}
         else:
-            before = {"status": "predates_previous_action", "file": earlier[-1][1], "source": "still",
+            before = {"status": "legacy_earlier_action", "file": earlier[-1][1], "source": "still",
                       "t_capture_start": earlier[-1][0],
-                      "reason": "recorder 0.1 screenshot from an earlier action; "
+                      "reason": "recorder 0.1 screenshot grabbed when an earlier action happened; "
                                 "it may not show that action's result"}
         s["observations"] = {"before": before,
                              "after": {"status": "missing", "file": None,

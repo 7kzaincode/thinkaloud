@@ -84,5 +84,5 @@ def test_legacy_assignment_is_explicit():
     events = [{"t": 1.0, "type": "click", "frame": "frames/000001000.png"}]
     legacy_assign(steps, events)
     assert steps[0]["observations"]["before"]["status"] == "at_action"
-    assert steps[1]["observations"]["before"]["status"] == "predates_previous_action"
+    assert steps[1]["observations"]["before"]["status"] == "legacy_earlier_action"
     assert all(s["observations"]["after"]["status"] == "missing" for s in steps)
