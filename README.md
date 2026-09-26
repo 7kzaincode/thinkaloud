@@ -45,8 +45,13 @@ recorder ─► sessions/<id>/ ─► processor ─► trajectory.json + playbac
 
 ### Desktop app
 
-Install `desktop/dist/thinkaloud Setup 0.1.0.exe` (unsigned: SmartScreen shows "More info" → "Run anyway"),
-or run it from source (below). Then:
+Two Windows executables are built into `desktop/dist/` (both unsigned: SmartScreen shows "More info" → "Run anyway"):
+
+- `thinkaloud Setup 0.1.0.exe`: installer with Start menu and desktop shortcuts.
+- `thinkaloud-portable-0.1.0.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
+  folder on each start, so it takes a few seconds longer to open).
+
+Rebuild both with `cd desktop && npm run dist` (installer and portable), or run from source (below). Then:
 
 1. **New recording**: type the task and what "done" looks like, pick your microphone (the level meter
    should move when you talk; virtual devices are called out), **Start recording**.
