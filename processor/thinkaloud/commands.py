@@ -24,11 +24,14 @@ def export_main(argv=None) -> int:
     p.add_argument("--no-zip", action="store_true")
     p.add_argument("--allow-privacy-flags", action="store_true",
                    help="export recordings that still have open high-severity privacy flags")
+    p.add_argument("--allow-privacy-for", action="append", default=[], metavar="ID",
+                   help="like --allow-privacy-flags, but only for this recording (repeatable)")
     a = p.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
+    allow = True if a.allow_privacy_flags else set(a.allow_privacy_for)
     try:
         r = export_bundle(a.sessions, a.out, formats=a.formats.split(","), include_media=a.include_media,
-                          zip_bundle=not a.no_zip, allow_privacy_flags=a.allow_privacy_flags)
+                          zip_bundle=not a.no_zip, allow_privacy_flags=allow)
     except ExportError as e:
         _out({"ok": False, "error": str(e)})
         return 1

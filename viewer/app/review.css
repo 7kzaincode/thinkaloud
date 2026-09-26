@@ -118,3 +118,5 @@ table.grid .mono { font-size: 11.5px; }
 .record h2.sub { font-size: 15px; margin: 28px 0 6px; }
 .ok-text { color: var(--ok); }
 .index-head .btn { text-decoration: none; }
+.sev.dismissed { background: var(--muted); }
+.pill.checked { opacity: 0.75; }

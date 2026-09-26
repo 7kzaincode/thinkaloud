@@ -274,9 +274,20 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
           <span className="summary">{t.qc.summary}</span>
           {openBy("high") > 0 && <span className="pill high"><span className="sev high" />{openBy("high")} privacy open</span>}
           {openBy("warn") > 0 && <span className="pill"><span className="sev warn" />{openBy("warn")} to check</span>}
-          {t.session_flags.map((f) => (
-            <span key={f.code} className="pill" title={f.detail}><span className={`sev ${f.severity}`} />{f.code.replaceAll("_", " ")}</span>
-          ))}
+          {t.session_flags.map((f) => {
+            const checked = t.review.dismissed_session_flags?.includes(f.code);
+            return (
+              <span key={f.code} className={`pill ${checked ? "checked" : ""}`} title={f.detail}>
+                <span className={`sev ${checked ? "dismissed" : f.severity}`} />{f.code.replaceAll("_", " ")}
+                {f.severity === "high" && (
+                  <button className="linkish" onClick={() => edit((d) => R.setSessionFlagChecked(d, f.code, !checked))}
+                    title={checked ? "Undo" : "I checked this recording for it (lets it be exported)"}>
+                    {checked ? " · undo" : " · I checked"}
+                  </button>
+                )}
+              </span>
+            );
+          })}
           {t.qc.redacted_steps ? <span className="pill">{t.qc.redacted_steps} typed values redacted</span> : null}
           {rebased && t.review.rebased && (
             <span className="pill warn-pill" title={t.review.rebased.dropped.join("\n") || "all edits carried over"}>

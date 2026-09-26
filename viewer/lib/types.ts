@@ -180,6 +180,8 @@ export interface Review {
   base_hash?: string;
   rebased?: { at: string; from_hash: string; dropped: string[] };
   rebase_history?: { at: string; from_hash: string; dropped: string[] }[];
+  /** recording-level high flags (e.g. password_masking_off) the reviewer checked */
+  dismissed_session_flags?: string[];
   checklist?: ChecklistItem[];
   ai?: {
     runs: AiRun[];

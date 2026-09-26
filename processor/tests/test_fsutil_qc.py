@@ -168,3 +168,29 @@ def test_a_secret_inside_a_redirect_parameter_is_caught():
     assert qc.sanitize_url("https://a.example/login?next=%2Faccount%3Ftoken%3Dabc123")[1]
     assert qc.sanitize_url("https://a.example/cb?state=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig")[1]
     assert not qc.sanitize_url("https://a.example/login?next=%2Faccount%3Ftab%3Dsettings")[1]
+
+
+@pytest.mark.parametrize("url", ["https://x.supabase.co/auth/v1/verify?token_hash=pkce_abc&type=email",
+                                 "https://a.example/r?password_reset_code=XYZ123", "https://a.example/r?tokenId=42",
+                                 "https://a.example/r?auth_token_v2=abc", "https://a.example/r?X-Amz-Signature=9f2c4e1a8b7d6c5e",
+                                 "https://a.example/verify/3f2b8c1e-9a4d-4b6e-8c2f-1a2b3c4d5e6f"])
+def test_secret_names_anywhere_in_the_parameter_name(url):
+    assert qc.sanitize_url(url)[1], url
+
+
+@pytest.mark.parametrize("url", ["https://shop.example/confirm/order-2024", "https://a.example/invite/team-offsite-2026",
+                                 "https://a.example/verify/step-by-step-v2", "https://mail.example/settings?email_signature=on",
+                                 "https://a.example/search?code=US"])
+def test_words_in_paths_and_ordinary_values_are_not_secrets(url):
+    assert not qc.sanitize_url(url)[1], url
+
+
+def test_chat_and_terminal_typing_is_not_joined_into_an_email():
+    enter = {"t_start": 2.0, "t_end": 2.0, "action": {"type": "key", "key": "enter"}, "flags": [], "reasoning": "",
+             "observations": {}, "context": {"window_title": "Sign in", "hwnd": 7}}
+    click = {**enter, "action": {"type": "click", "x": 1, "y": 1, "button": "left"}}
+    chat = [_t("Thanks", 1.0), enter, _t("@maria.garcia can you check the build", 3.0)]
+    term = [_t("npm install", 1.0), click, _t("@types.node", 3.0)]
+    for steps in (chat, term):
+        qc.check_steps(steps, [])
+        assert not any(f["code"] == "possible_email" for s in steps for f in s["flags"])

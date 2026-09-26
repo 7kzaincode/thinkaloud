@@ -27,7 +27,7 @@ export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ExportResult | null>(null);
 
-  const run = async (allowPrivacy = false) => {
+  const run = async (allowPrivacy: string[] = []) => {
     setBusy(true);
     setRes(null);
     try {
@@ -41,7 +41,7 @@ export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
       const r = await fetch("/api/export", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids, formats: [dataset && "dataset", claude && "claude"].filter(Boolean), include_media: media,
-          allow_privacy_flags: allowPrivacy }),
+          allow_privacy_ids: allowPrivacy }),
       });
       setRes(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
     } catch (e) {
@@ -75,7 +75,7 @@ export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
         {saveFailed && <div className="alert">Your latest edits could not be saved; the export would not include them.</div>}
         <div className="modal-actions">
           <button className="btn ghost" onClick={onClose}>Close</button>
-          <button className="btn primary" disabled={busy || (!dataset && !claude)} onClick={() => run(false)}>{busy ? "Exporting and validating…" : "Export"}</button>
+          <button className="btn primary" disabled={busy || (!dataset && !claude)} onClick={() => run()}>{busy ? "Exporting and validating…" : "Export"}</button>
         </div>
         {res && (
           <div className={`export-result ${res.ok ? (validationErrors.length ? "bad" : contentProblems.length || allWarnings.length ? "warn" : "ok") : "bad"}`} aria-live="polite">
@@ -92,7 +92,7 @@ export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
                 <b>Skipped ({skipped.length}):</b>
                 <ul className="errs">{skipped.map((s, i) => <li key={i}>{s.id}: {s.reason}</li>)}</ul>
                 {privacySkipped.length > 0 && (
-                  <button className="btn" disabled={busy} onClick={() => run(true)}
+                  <button className="btn" disabled={busy} onClick={() => run(privacySkipped.map((s) => s.id))}
                     title="Open privacy flags mean typed emails/passwords or emails in URLs may be visible in the screenshots">
                     I checked the privacy flags: export anyway
                   </button>

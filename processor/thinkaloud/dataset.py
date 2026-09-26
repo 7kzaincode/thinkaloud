@@ -47,6 +47,7 @@ CLAUDE_FORMAT = "thinkaloud.claude_computer_use/1.0"
 CLAUDE_TOOL_TYPE = "computer_toolset_20260801"
 ACTIONS = {"click", "drag", "type", "key", "scroll"}
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
+OS_METADATA = {".DS_Store", "Thumbs.db", "desktop.ini", "ehthumbs.db"}  # written by Finder / Explorer
 PNG_END = b"\x00\x00\x00\x00IEND\xaeB`\x82"   # the IEND chunk every complete PNG ends with
 BEFORE_STATUS = {"ok", "predates_previous_action", "stale", "missing", "at_action", "legacy_earlier_action"}
 AFTER_STATUS = {"settled", "unsettled", "missing"}
@@ -456,8 +457,12 @@ def validate_bundle(path) -> dict:
         elif p.stat().st_size != f.get("bytes") or _sha(p) != f.get("sha256"):
             E.append(f"file {f['path']} does not match its manifest checksum")
     for p in base.rglob("*"):
-        if p.is_file() and p.name != "manifest.json" and p.relative_to(base).as_posix() not in listed:
-            E.append(f"file {p.relative_to(base).as_posix()} is not listed in the manifest (not checksummed)")
+        rel = p.relative_to(base).as_posix()
+        if (p.is_file() and p.name != "manifest.json" and rel not in listed
+                and not (p.name in OS_METADATA or p.name.startswith("._") or "__MACOSX/" in rel + "/"
+                         or "__pycache__/" in rel + "/")):
+            # not referenced by anything the validator checks (every referenced file must be listed)
+            W.append(f"file {rel} is not listed in the manifest")
     for r in man.get("recordings", []):
         for k in ("dataset", "claude"):
             if r.get(k) and r[k] not in listed:

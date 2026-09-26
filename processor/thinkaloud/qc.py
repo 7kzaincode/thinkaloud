@@ -210,10 +210,23 @@ def _window_key(s: dict):
 SPLIT_WINDOW_S = 60.0
 
 
+COMMON_TLDS = {"com", "org", "net", "edu", "gov", "mil", "int", "io", "co", "ai", "app", "dev", "info", "biz",
+               "me", "email", "mail", "online", "tech", "xyz", "cloud", "site", "live", "pro", "team", "company"}
+
+
+def plausible_address(addr: str) -> bool:
+    """For an address assembled from separate typing bursts only: a real-looking domain ending
+    (a common or two-letter country TLD), so "Thanks" + "@maria.garcia …" or "install" +
+    "@types.node" in a chat or terminal are not taken for email addresses."""
+    tld = addr.rsplit(".", 1)[-1].lower()
+    return tld in COMMON_TLDS or len(tld) == 2
+
+
 def check_split_emails(steps: list[dict]) -> None:
-    """An address typed in pieces (a pause over type_gap_s splits typing into steps; a click or
-    an arrow key in between) is still an address: the typing steps in one window, each within
-    SPLIT_WINDOW_S of the previous one, are checked as one text."""
+    """An address typed in pieces (a pause over type_gap_s splits typing into steps; a click in
+    the field, an arrow key or a correction in between) is still an address: typing steps in one
+    window, each within SPLIT_WINDOW_S of the previous one and not separated by Enter or Tab
+    (which submit or move to another field), are checked as one text."""
     run: list[dict] = []
 
     def scan():
@@ -226,8 +239,8 @@ def check_split_emails(steps: list[dict]) -> None:
             pos += len(st["action"]["text"])
         for m in EMAIL_RE.finditer(joined):
             parts = [st for a, b, st in spans if a < m.end() and b > m.start()]
-            if len(parts) < 2:
-                continue  # inside one step: already checked
+            if len(parts) < 2 or not plausible_address(m.group(0)):
+                continue  # inside one step (already checked), or not a real-looking address
             for st in parts:
                 if not any(f["code"] == "possible_email" for f in st["flags"]):
                     st["flags"].append(flag("possible_email", "high",
@@ -243,10 +256,11 @@ def check_split_emails(steps: list[dict]) -> None:
             run = []
             continue
         if a["type"] != "type" or a.get("masked_chars"):
-            if run and _window_key(st) not in (None, _window_key(run[-1])):
+            submit = a["type"] == "key" and a.get("key") in ("enter", "tab", "shift+tab")
+            if run and (submit or _window_key(st) not in (None, _window_key(run[-1]))):
                 scan()
                 run = []
-            continue  # other input in the same window doesn't end the run
+            continue  # other input in the same window (a click, arrows, a correction) doesn't end the run
         if run and _window_key(run[-1]) == _window_key(st) and st["t_start"] - run[-1]["t_end"] <= SPLIT_WINDOW_S:
             run.append(st)
         else:
@@ -323,25 +337,44 @@ def check_session(meta: dict, steps: list[dict], segments: list[dict],
     return out
 
 
-# parameter names are compared lowercased with separators removed (accessToken == access_token);
-# a name is secret-like when it ENDS with one of these (so "sessionTitle" and "tokenizer" are not)
-SENSITIVE_ENDINGS = ("token", "secret", "password", "passwd", "pwd", "apikey", "accesskey", "privatekey",
-                     "sessionid", "sessid", "session", "jwt", "signature", "credential", "credentials", "verifier",
-                     "authcode", "authorization", "samlresponse", "samlrequest", "rlkey", "secretkey", "clientkey")
-SENSITIVE_NAMES = {"auth", "code", "sig", "key", "pin", "otp", "sid", "pass", "hash", "ticket"}
+# Parameter names are split into word tokens (access_token, accessToken, auth-token-v2 -> access/token...).
+# STRONG words make a parameter secret whatever its value; WEAK words only when the value looks random
+# (so ?email_signature=on or ?code=US are not flagged, ?code=4/0AfJ... and ?signature=9f2c... are).
+STRONG_WORDS = {"token", "secret", "password", "passwd", "pwd", "apikey", "jwt", "credential", "credentials",
+                "verifier", "sessionid", "sessid", "samlresponse", "samlrequest", "rlkey", "otp", "passcode"}
+WEAK_WORDS = {"auth", "code", "sig", "signature", "key", "hash", "sid", "session", "ticket", "pin", "pass", "state"}
 TOKEN_PATH_BEFORE = {"reset", "resetpassword", "passwordreset", "verify", "verification", "confirm", "activate",
                      "activation", "magic", "magiclink", "invite", "invitation", "token", "unsubscribe", "auth", "login"}
 JWT_RE = re.compile(r"^eyJ[\w-]+\.[\w-]+\.[\w-]*$")
 
 
-def _sensitive_name(name: str) -> bool:
-    n = re.sub(r"[^a-z0-9]", "", name.lower())
-    return n in SENSITIVE_NAMES or n.endswith(SENSITIVE_ENDINGS)
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _name_words(name: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)               # camelCase -> camel Case
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if w]
+    return words + ["".join(words)]                                   # also the whole name: "apikey", "sessionid"
+
+
+def _random_value(v: str) -> bool:
+    """Looks machine-generated: long, no spaces, letters mixed with digits or symbols."""
+    v = v or ""
+    return (len(v) >= 12 and " " not in v and any(c.isalpha() for c in v)
+            and (any(c.isdigit() for c in v) or any(c in "-_./+=" for c in v)))
+
+
+def _sensitive_param(name: str, value: str) -> bool:
+    words = set(_name_words(name))
+    return bool(words & STRONG_WORDS) and bool(value) or bool(words & WEAK_WORDS) and _random_value(value)
 
 
 def _token_like(seg: str) -> bool:
-    """Random-looking: letters and digits mixed (a UUID, a hex or base64 token, "7F3K9Q"), not words."""
-    return (len(seg) >= 6 and re.fullmatch(r"[A-Za-z0-9_-]+", seg) is not None
+    """Random-looking path segment: a UUID, or letters and digits mixed with no word separators
+    ("7F3K9Q", a hex or base64 token). "order-2024" or "step-by-step-v2" are words, not tokens."""
+    if UUID_RE.match(seg):
+        return True
+    return (len(seg) >= 6 and re.fullmatch(r"[A-Za-z0-9_]+", seg) is not None
             and any(c.isdigit() for c in seg) and any(c.isalpha() for c in seg))
 
 
@@ -357,7 +390,7 @@ def sanitize_url(url: str, _depth: int = 0) -> tuple[str, bool]:
     if "@" in netloc:  # user:password@host
         netloc, found = netloc.rsplit("@", 1)[1], True
     params = parse_qsl(u.query, keep_blank_values=True) + parse_qsl(u.fragment, keep_blank_values=True)
-    if any(_sensitive_name(k) or JWT_RE.match(v or "") for k, v in params):
+    if any(_sensitive_param(k, v) or JWT_RE.match(v or "") for k, v in params):
         found = True
     elif _depth < 2 and any(("?" in v or "#" in v or "@" in v) and sanitize_url(v, _depth + 1)[1] for _, v in params):
         found = True  # e.g. ?next=/account?token=... (a redirect target carrying a secret)

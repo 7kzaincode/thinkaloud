@@ -451,9 +451,21 @@ def test_bundle_files_must_be_checksummed(processed, tmp_path):
     rel = "recordings/synthetic-flight/trajectory.json"
     man["files"] = [f for f in man["files"] if f["path"] != rel]      # edit the dataset and drop its checksum
     (b / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
-    errs = ds.validate_bundle(b)["errors"]
-    assert any("not listed in the manifest" in e for e in errs)
-    assert any("dataset file" in e and "not a checksummed file" in e for e in errs)
+    rep = ds.validate_bundle(b)
+    assert any("dataset file" in e and "not a checksummed file" in e for e in rep["errors"])
+    assert any("not listed in the manifest" in w for w in rep["warnings"])
+
+
+def test_os_metadata_files_do_not_break_a_valid_bundle(processed, tmp_path):
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False, allow_privacy_flags=True)
+    b = Path(r["bundle"])
+    (b / ".DS_Store").write_bytes(b"x")
+    (b / "recordings" / "synthetic-flight" / "assets" / "Thumbs.db").write_bytes(b"x")
+    (b / "._manifest.json").write_bytes(b"x")
+    rep = ds.validate_bundle(b)
+    assert rep["ok"] and not rep["warnings"], rep
+    with ds.load_bundle(b) as loaded:
+        assert loaded.manifest
 
 
 def test_exports_never_contain_subject_hashes(processed, tmp_path):
@@ -502,3 +514,29 @@ def test_validator_cross_checks_scroll_directions_and_typed_text(processed, tmp_
     _resign(b, rel)
     errs = ds.validate_bundle(b)["errors"]
     assert any("scrolls" in e for e in errs) and any("the dataset step typed" in e for e in errs)
+
+
+def test_privacy_override_is_per_recording_and_session_flags_can_be_checked(processed, tmp_path):
+    other = tmp_path / "second-rec"
+    shutil.copytree(processed, other)
+    r = export_bundle([processed, other], tmp_path / "out", allow_privacy_flags={"second-rec"})
+    assert r["recordings"] == 1 and [s["id"] for s in r["skipped"]] == ["synthetic-flight"]
+    # a recording-level high flag, checked by the reviewer, no longer blocks
+    t = json.loads((processed / "trajectory.json").read_text(encoding="utf-8"))
+    t["session_flags"].append({"code": "password_masking_off", "severity": "high", "detail": "x", "source": "qc"})
+    (processed / "trajectory.json").write_text(json.dumps(t), encoding="utf-8")
+    t = review(processed, dismissed_session_flags=["password_masking_off"])
+    for s in t["steps"]:
+        s["dismissed_flags"] = [f for f in s["flags"] if f["severity"] == "high"]
+    (processed / "trajectory.reviewed.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out2")
+    assert r["ok"], r
+
+
+def test_loading_the_bundle_with_python_does_not_invalidate_it(processed, tmp_path):
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False, allow_privacy_flags=True)
+    b = Path(r["bundle"])
+    (b / "__pycache__").mkdir()
+    (b / "__pycache__" / "thinkaloud_dataset.cpython-312.pyc").write_bytes(b"x")    # import td from the folder
+    rep = ds.validate_bundle(b)
+    assert rep["ok"] and not rep["warnings"], rep

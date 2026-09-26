@@ -171,7 +171,8 @@ represented.
 **Privacy gate.** A recording with an open high-severity privacy flag (typed email or secret, a redacted value
 that may be visible on screen, an email or sensitive-looking URL parameter in a window title, element name or
 page URL) is skipped. Dismiss the flags after checking the images, or click **I checked the privacy flags:
-export anyway** (`engine export --allow-privacy-flags`).
+export anyway**, which lets through exactly the recordings listed as skipped (`engine export --allow-privacy-for ID`,
+or `--allow-privacy-flags` for all).
 
 ```
 thinkaloud-export-<time>-<n>rec-<random>/
@@ -226,8 +227,9 @@ its action and every *after* image started after the action ended and finished b
 coordinates, references, and that every image is a real PNG (for the Claude file, of the declared screenshot
 size); for the Claude file: message alternation, member names and inputs (including key names), coordinates
 inside the screenshot, one result per call with `toolset_name`; and that the Claude conversation says the same as
-the dataset (click/drag coordinates scaled, typed text, scroll directions). Every file must be listed with its
-checksum. A `.zip` is extracted to a temporary folder that is removed when the bundle is closed
+the dataset (click/drag coordinates scaled, typed text, scroll directions). Every file the bundle refers to must be
+listed with its checksum; other unlisted files are reported as warnings, and OS metadata (`.DS_Store`, `Thumbs.db`,
+`__pycache__/` from importing the loader) is ignored. A `.zip` is extracted to a temporary folder that is removed when the bundle is closed
 (`with td.load_bundle(...) as b:`).
 
 ## Data formats and timeline
@@ -286,12 +288,14 @@ flags it `drag_not_represented`). Steps have stable `uid`s (`s` + first event se
   before anything is written. The focused field is looked up again whenever focus may have moved (a click, Tab,
   Enter, a shortcut, a new typing burst), so a password typed right after Tab is masked. Masking **fails closed**:
   if the focused field can't be checked (UI Automation timed out or errored), the keys are masked too and the
-  recording gets a `masked_unknown_focus` flag. UI Automation answers can only ever *add* masking: a focus answer is
-  only trusted if no click or focus-moving key happened since the keystroke, it is never retried (a later answer may
-  describe where the page itself moved focus, e.g. auto-advancing PIN boxes), and typing right after clicking a
-  password field stays masked until you move focus. With `--no-uia`, or if UI Automation fails to start, password
+  recording gets a `masked_unknown_focus` flag. UI Automation answers can only ever *add* masking: focus lookups run
+  on their own worker (a slow click lookup can't delay them); a focus answer is only trusted if it was computed within
+  0.35 s of the keystroke and no click or focus-moving key happened in between; it is never retried (a later answer
+  may describe where the page itself moved focus, e.g. a PIN box focused after navigation); and typing right after
+  clicking a password field stays masked until you move focus. With `--no-uia`, or if UI Automation fails to start, password
   fields can't be detected: nothing is masked, the pill says "passwords not masked", and the recording gets
-  `password_masking_off`, which is a high-severity flag (it blocks export until checked) when anything was typed.
+  `password_masking_off`, which is a high-severity flag when anything was typed: it blocks export until you mark
+  it "I checked" on the review page (recording-level flags have no step to dismiss them on).
 - Typed text that looks like an email or password is flagged and redacted from exports (`[REDACTED]`), including
   text typed and then deleted again (checked, never quoted in descriptions; the raw `keystrokes` are removed), an
   address typed in two bursts, and an address in the narration transcript. **The screen may still show it**: QC

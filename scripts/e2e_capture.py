@@ -47,6 +47,19 @@ class NotInFront(RuntimeError):
     """The test window lost the foreground; stop injecting input immediately."""
 
 
+def idle_seconds() -> float:
+    """Seconds since the last keyboard/mouse input on this machine (GetLastInputInfo)."""
+    import ctypes
+
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+    info = LASTINPUTINFO()
+    info.cbSize = ctypes.sizeof(info)
+    ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info))
+    return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=Path(tempfile.gettempdir()) / "thinkaloud-e2e")
@@ -60,7 +73,17 @@ def main() -> int:
                     help="only perform the guarded input script on an already running test bench (--layout); "
                          "used by scripts/app_journey.mjs while the desktop app records")
     ap.add_argument("--layout", type=Path, help="layout.json of a running test bench (with --inputs-only)")
+    ap.add_argument("--require-idle", type=float, default=120.0,
+                    help="refuse to start unless nobody has used the keyboard or mouse for this many seconds "
+                         "(the test records the whole screen and moves the mouse; 0 disables)")
+    ap.add_argument("--idle", action="store_true", help="print the idle time in seconds and exit")
     a = ap.parse_args()
+    if a.idle:
+        print(f"{idle_seconds():.1f}")
+        return 0
+    if not a.inputs_only and a.require_idle and idle_seconds() < a.require_idle:
+        raise SystemExit(f"NOT STARTED: someone used this computer {idle_seconds():.0f} s ago; the test records the "
+                         f"whole screen and moves the mouse, so it waits for {a.require_idle:.0f} s of inactivity")
 
     from pynput.keyboard import Controller as K, Key
     from pynput.mouse import Button, Controller as M
