@@ -1,5 +1,7 @@
 """UIA descend fallback on a fake element tree (no COM)."""
 import sys
+
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -119,3 +121,18 @@ def test_focus_lookups_never_wait_behind_click_lookups(monkeypatch):
     for c in clicks:
         pool.result(c, 3)
     pool.stop()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows UI Automation")
+def test_both_real_uia_clients_start():
+    """Two clients created at the same moment: the second failed (COMError). Start is sequential."""
+    import time
+    sys.coinit_flags = 0
+    pool = uia.UIAPool(time.perf_counter, focus_epoch=lambda: 1)
+    pool.start()
+    pool.point.ready.wait(10)
+    try:
+        assert pool.focus.available and pool.point.available, (pool.focus.error, pool.point.error)
+        assert pool.result(pool.submit("focus", time.perf_counter(), epoch=1), 3)["status"] in ("ok", "not_found")
+    finally:
+        pool.stop()
