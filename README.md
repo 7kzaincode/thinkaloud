@@ -318,7 +318,8 @@ tabbed into), scroll grouping, before/after pixel colours, and video-vs-input ti
 window is always-on-top (the driver refuses to start if it isn't) and every click, scroll and keystroke is preceded
 by a check that the test window is in front and under the cursor (it aborts otherwise).
 `node scripts/app_journey.mjs` runs the whole journey in the packaged desktop app (record → process → review →
-replay → export → reload) with the same guarded input driver.
+replay → export → reload) with the same guarded input driver; `node scripts/settings_check.mjs` checks the
+AI provider settings and key storage in the packaged app.
 Results and measurements are in [docs/VALIDATION_LOG.md](docs/VALIDATION_LOG.md) and `docs/evidence/`;
 [docs/IMPLEMENTATION_CHECKLIST.md](docs/IMPLEMENTATION_CHECKLIST.md) maps every requirement to its evidence.
 
@@ -358,7 +359,7 @@ no dropped frames; audio clock drift 22.7 ppm.
   not checked on a real non-US layout.
 - **The OCR check (`--ocr`) is untested**: Tesseract isn't installed on the development machine; the Docker
   image can include it (`--build-arg WITH_OCR=1`).
-- **The installer is unsigned**, ~190 MB, Windows x64 only.
+- **The installer is unsigned**, ~210 MB, Windows x64 only.
 - One monitor is captured at a time (`--monitor`); clicks on other monitors are recorded but flagged outside the frame.
 
 ## Layout
