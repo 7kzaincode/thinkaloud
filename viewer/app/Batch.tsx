@@ -166,8 +166,14 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
 
       {rows.length === 0 ? (
         <div className="empty">
-          No recordings yet. Click <b>New recording</b>{desktop ? "" : " (desktop app)"} or record from a terminal with <code>python recorder/record.py</code>,
-          or generate the sample with <code>python scripts/make_synthetic.py</code>.
+          {desktop ? (
+            <>No recordings yet. Click <b>New recording</b>, type the task and what “done” looks like, and talk through what you do.</>
+          ) : (
+            <>
+              No recordings yet. Click <b>New recording</b> (desktop app) or record from a terminal with <code>python recorder/record.py</code>,
+              or generate the sample with <code>python scripts/make_synthetic.py</code>.
+            </>
+          )}
         </div>
       ) : (
         <table className="grid">

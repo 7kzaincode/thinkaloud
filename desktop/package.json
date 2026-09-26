@@ -86,7 +86,8 @@
     },
     "afterPack": "./afterPack.js",
     "portable": {
-      "artifactName": "thinkaloud-portable-${version}.exe"
+      "artifactName": "thinkaloud-portable-${version}.exe",
+      "unpackDirName": true
     }
   }
 }
