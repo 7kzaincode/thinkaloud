@@ -880,7 +880,8 @@ class Recorder:
                       {"file": None, "sample_rate": SAMPLE_RATE, "offset_s": None, "error": "disabled"}),
             "uia": {"enabled": self.uia is not None,
                     "available": getattr(self.uia, "available", None),
-                    "error": getattr(self.uia, "error", None)},
+                    "error": getattr(self.uia, "error", None),
+                    "click_targets_error": getattr(self.uia, "point_error", None)},
             "input": {"events": self.n_events, "masked_keys": self.n_masked,
                       "masked_focus_unknown": self.n_mask_unknown, "pauses": self.pauses,
                       "password_masking": ("off" if self.uia is None else

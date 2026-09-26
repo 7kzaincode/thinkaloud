@@ -206,6 +206,8 @@ high, 2 medium (overlapping A and B). Fixed afterwards (see the commit after 4a3
 | F5 | medium | URL scan stopped catching `token_hash`, `tokenId`, `password_reset_code`, `auth_token_v2`; false alarms on word paths and `email_signature=on` (B) | secret words matched as name tokens (strong words always, weak words only with a random-looking value); path tokens need a UUID or letters+digits with no word separators | `test_secret_names_anywhere_in_the_parameter_name`, `test_words_in_paths_and_ordinary_values_are_not_secrets` |
 | F6 | medium | Recording-level privacy flags couldn't be dismissed; the override covered every selected recording (B) | "I checked" on recording-level flags (stored in the review, honoured by the export gate); the override lets through only the recordings listed as skipped | `test_privacy_override_is_per_recording_and_session_flags_can_be_checked`, viewer test "recording-level privacy flags can be marked as checked" |
 
+| F7 | high (caught before any release) | Found while verifying F1 against real COM: the second UI Automation client created at the same moment on another thread failed ("COMError: Unspecified error"), so click targets would have been unavailable | the pool starts the focus worker, waits for it, then starts the click worker; availability follows the focus worker (masking), a click-worker failure is recorded as `uia.click_targets_error` | `test_both_real_uia_clients_start` (real COM; 3 of 3 concurrent starts failed before, sequential starts always succeed) |
+
 Found while fixing (not in either review): the test bench was not actually topmost (C30), and the pipeline read the
 system double-click time but not the box size (A17).
 

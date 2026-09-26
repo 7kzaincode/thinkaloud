@@ -297,9 +297,12 @@ class UIAPool:
         self.focus = UIAWorker(clock, timeout_ms, focus_epoch=focus_epoch, name="uia-focus")
         self._owner: dict[int, UIAWorker] = {}
 
-    def start(self) -> None:
-        self.point.start()
+    def start(self, timeout_s: float = 5.0) -> None:
+        # one after the other: creating two UI Automation clients at the same moment on two threads
+        # fails for the second one (COMError "Unspecified error", reproduced on Windows 11)
         self.focus.start()
+        self.focus.ready.wait(timeout_s)
+        self.point.start()
 
     @property
     def ready(self):
@@ -312,13 +315,17 @@ class UIAPool:
 
     @property
     def available(self):
-        if self.point.available is None or self.focus.available is None:
-            return None
-        return bool(self.point.available and self.focus.available)
+        """Whether password fields can be detected (the focus worker); click targets may still be
+        unavailable on their own (point_error)."""
+        return self.focus.available
 
     @property
     def error(self):
-        return self.focus.error or self.point.error
+        return self.focus.error
+
+    @property
+    def point_error(self):
+        return self.point.error if self.point.available is False else None
 
     def submit(self, kind: str, t_event: float, *args, epoch: int | None = None) -> int:
         w = self.focus if kind == "focus" else self.point
