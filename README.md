@@ -198,7 +198,7 @@ This is a weekend prototype. Things I know are wrong or missing:
 - **No window/app context.** A real version would log the focused window title and URL (and the accessibility tree) for every step.
 - **Whisper timestamps drift** by a few hundred ms, and `base.en` makes mistakes on jargon. `--model small.en` is better and slower.
 - **The recorder can't tell where typing went**, so text typed into the wrong window still becomes a "type" step.
-- **The Docker image hasn't been built on my machine yet** (Docker Desktop was broken during the build). The processor was tested in a local venv with the same pinned versions.
+- **The Docker image is ~760 MB** (mostly CTranslate2 + onnxruntime). The Whisper model downloads on first run into the `thinkaloud-models` volume. The OCR variant (`WITH_OCR=1`) hasn't been tested yet.
 
 ## Layout
 
