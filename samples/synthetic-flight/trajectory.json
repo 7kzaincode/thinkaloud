@@ -79,7 +79,7 @@
         "screen_x": 290,
         "screen_y": 293
       },
-      "description": "Clicked the Email edit",
+      "description": "Clicked the Email field",
       "context": {
         "window_title": "Sign in - Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -212,6 +212,12 @@
           "severity": "high",
           "detail": "Typed text contains an email address.",
           "source": "qc"
+        },
+        {
+          "code": "redacted_value_on_screen",
+          "severity": "high",
+          "detail": "The typed value was removed from the action, but the field (and so the after-state and later screenshots) may still show it. Check the images before sharing; run with --ocr to scan for emails.",
+          "source": "qc"
         }
       ]
     },
@@ -228,7 +234,7 @@
         "screen_x": 290,
         "screen_y": 393
       },
-      "description": "Clicked the Password edit",
+      "description": "Clicked the Password field",
       "context": {
         "window_title": "Sign in - Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -417,7 +423,7 @@
         "screen_x": 230,
         "screen_y": 293
       },
-      "description": "Clicked the From combobox",
+      "description": "Clicked the From dropdown",
       "context": {
         "window_title": "Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -659,7 +665,7 @@
         "screen_x": 850,
         "screen_y": 293
       },
-      "description": "Clicked the Depart combobox",
+      "description": "Clicked the Depart dropdown",
       "context": {
         "window_title": "Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -834,7 +840,7 @@
         "screen_x": 1350,
         "screen_y": 192
       },
-      "description": "Clicked the Sort: Recommended combobox",
+      "description": "Clicked the Sort: Recommended dropdown",
       "context": {
         "window_title": "YYZ to SFO - Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -926,7 +932,7 @@
         "screen_x": 1300,
         "screen_y": 283
       },
-      "description": "Clicked the Price: low to high list item",
+      "description": "Clicked the Price: low to high item",
       "context": {
         "window_title": "YYZ to SFO - Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -1198,7 +1204,7 @@
         "screen_x": 700,
         "screen_y": 368
       },
-      "description": "Clicked the Air Canada 8:30 to 11:02, nonstop, $312 list item",
+      "description": "Clicked the Air Canada 8:30 to 11:02, nonstop, $312 item",
       "context": {
         "window_title": "YYZ to SFO - Farefinder - Google Chrome",
         "process": "chrome.exe",
@@ -1526,15 +1532,16 @@
   ],
   "session_flags": [],
   "qc": {
-    "summary": "18 steps, 1 missing reasoning, 1 idle gap, 1 typed email, 1 missing after-state, 1 masked input",
+    "summary": "18 steps, 1 missing reasoning, 1 idle gap, 1 typed email, 1 redacted value on screen, 1 missing after-state, 1 masked input",
     "counts": {
       "possible_email": 1,
+      "redacted_value_on_screen": 1,
       "masked_input": 1,
       "missing_after_state": 1,
       "missing_reasoning": 1,
       "idle_gap": 1
     },
-    "high_severity": 1,
+    "high_severity": 2,
     "redacted_steps": 1
   },
   "review": {

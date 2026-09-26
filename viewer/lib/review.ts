@@ -1,0 +1,276 @@
+/**
+ * Review state transitions. Pure functions over a trajectory draft (callers clone).
+ *
+ * Rules enforced here (and tested in review.test.ts):
+ *  - AI results only ever add suggestions. They never change reasoning, flags,
+ *    checklist verdicts or the outcome. A human action (decide*, accept*, set*)
+ *    is required for any of those.
+ *  - Every AI evaluation carries the hash of the input it judged. If the reviewer
+ *    later edits that input (reasoning, checklist item text), the evaluation is
+ *    reported stale and can no longer be accepted.
+ *  - The processor's original reasoning is kept when a reviewer edits it.
+ */
+import { finalCheckInput, narrationInput } from "./hash.ts";
+import type { AiRun, ChecklistItem, Flag, Step, StepAssessment, Trajectory } from "./types.ts";
+
+export type Draft = Trajectory;
+
+export interface AiResult {
+  run: AiRun;
+  assessments?: { uid: string; verdict: StepAssessment["verdict"]; explanation: string; input_hash: string }[];
+  drafts?: { text: string }[];
+  checks?: { item_id: string; verdict: "supported" | "contradicted" | "unknown"; evidence: string; input_hash: string }[];
+}
+
+const nowIso = () => new Date().toISOString();
+
+function ai(d: Draft) {
+  d.review.ai ??= { runs: [], step_assessments: [], checklist_drafts: [] };
+  return d.review.ai;
+}
+
+function touch(d: Draft, step?: Step) {
+  d.review.edited = true;
+  if (step) step.edited = true;
+}
+
+export function stepKey(s: Step): string {
+  return s.uid ?? timeKey(s);
+}
+
+/** Identity used by schema 0.1 steps (no uid): start time and action type. */
+export function timeKey(s: Step): string {
+  return `t${s.t_start}|${s.action.type}`;
+}
+
+// ---- step edits ---------------------------------------------------------------
+export function setReasoning(d: Draft, i: number, text: string): void {
+  const s = d.steps[i];
+  if (!s.reasoning_original) {
+    s.reasoning_original = { text: s.reasoning, source: s.reasoning_source, carried_from: s.carried_from };
+  }
+  s.reasoning = text;
+  s.reasoning_source = text.trim() ? "reviewer" : null;
+  s.carried_from = null;
+  if (text.trim()) {
+    // a reviewer-written reason resolves "missing_reasoning"; keep it on record
+    const resolved = s.flags.filter((f) => f.code === "missing_reasoning");
+    s.flags = s.flags.filter((f) => f.code !== "missing_reasoning");
+    s.dismissed_flags = [...(s.dismissed_flags ?? []), ...resolved];
+  }
+  touch(d, s);
+}
+
+export function revertReasoning(d: Draft, i: number): void {
+  const s = d.steps[i];
+  if (!s.reasoning_original) return;
+  s.reasoning = s.reasoning_original.text;
+  s.reasoning_source = s.reasoning_original.source;
+  s.carried_from = s.reasoning_original.carried_from;
+  delete s.reasoning_original;
+  const back = (s.dismissed_flags ?? []).filter((f) => f.code === "missing_reasoning");
+  if (!s.reasoning.trim() && back.length) {
+    s.dismissed_flags = (s.dismissed_flags ?? []).filter((f) => f.code !== "missing_reasoning");
+    s.flags.push(...back);
+  }
+  touch(d, s);
+}
+
+export function dismissFlag(d: Draft, i: number, k: number): void {
+  const s = d.steps[i];
+  const [f] = s.flags.splice(k, 1);
+  if (f) s.dismissed_flags = [...(s.dismissed_flags ?? []), f];
+  touch(d, s);
+}
+
+export function restoreFlag(d: Draft, i: number, k: number): void {
+  const s = d.steps[i];
+  const [f] = (s.dismissed_flags ?? []).splice(k, 1);
+  if (f) s.flags.push(f);
+  touch(d, s);
+}
+
+export function addReviewerFlag(d: Draft, i: number, note: string): void {
+  const s = d.steps[i];
+  s.flags.push({ code: "reviewer_flag", severity: "warn", detail: note.trim() || "Flagged by reviewer.", source: "reviewer" });
+  touch(d, s);
+}
+
+export function setOutcome(d: Draft, v: "pass" | "fail" | null): void {
+  d.review.outcome = v;
+  touch(d);
+}
+
+export function setNotes(d: Draft, notes: string): void {
+  d.review.notes = notes;
+  touch(d);
+}
+
+// ---- AI results: suggestions only ------------------------------------------------
+export function applyAiResult(d: Draft, r: AiResult): void {
+  const st = ai(d);
+  st.runs.push(r.run);
+  if (r.run.status !== "ok") return;
+  for (const a of r.assessments ?? []) {
+    const prev = st.step_assessments.find((x) => x.uid === a.uid);
+    const carried = prev && prev.decision && prev.verdict === a.verdict && prev.input_hash === a.input_hash;
+    const next: StepAssessment = {
+      uid: a.uid, run_id: r.run.id, verdict: a.verdict, explanation: a.explanation, input_hash: a.input_hash,
+      decision: carried ? prev!.decision : null, decided_at: carried ? prev!.decided_at : undefined,
+    };
+    st.step_assessments = st.step_assessments.filter((x) => x.uid !== a.uid).concat(next);
+  }
+  for (const [n, dr] of (r.drafts ?? []).entries()) {
+    st.checklist_drafts.push({ id: `${r.run.id}-${n}`, text: dr.text, run_id: r.run.id, decision: null });
+  }
+  for (const c of r.checks ?? []) {
+    const item = (d.review.checklist ?? []).find((x) => x.id === c.item_id);
+    if (item) item.ai_check = { run_id: r.run.id, verdict: c.verdict, evidence: c.evidence, input_hash: c.input_hash };
+  }
+  d.review.edited = true;
+}
+
+// ---- staleness --------------------------------------------------------------------
+export function assessmentStale(d: Draft, a: StepAssessment): boolean {
+  const s = d.steps.find((x) => stepKey(x) === a.uid);
+  return !s || narrationInput(s) !== a.input_hash;
+}
+
+export function checkStale(d: Draft, item: ChecklistItem): boolean {
+  if (!item.ai_check) return false;
+  const final = d.final_observation?.file ?? d.final_screenshot;
+  return finalCheckInput(item.text, d.success_criteria, final) !== item.ai_check.input_hash;
+}
+
+// ---- human decisions on AI suggestions ------------------------------------------------
+const FLAG_FOR: Record<string, { code: string; text: string } | undefined> = {
+  does_not_explain: { code: "narration_mismatch", text: "Narration does not explain this action" },
+  partially_explains: { code: "partial_explanation", text: "Narration only partly explains this action" },
+  filler: { code: "filler_narration", text: "Narration is filler" },
+  missing: { code: "missing_explanation", text: "No explanation for this action" },
+};
+
+/** Accepting a critical assessment turns it into a reviewer flag (with provenance). */
+export function decideAssessment(d: Draft, uid: string, decision: "accepted" | "rejected" | null): void {
+  const st = ai(d);
+  const a = st.step_assessments.find((x) => x.uid === uid);
+  const s = d.steps.find((x) => stepKey(x) === uid);
+  if (!a || !s) return;
+  if (decision === "accepted" && assessmentStale(d, a)) throw new Error("stale suggestion: re-run the check first");
+  const isProv = (f: Flag) => f.provenance?.ai_run_id === a.run_id && f.provenance?.suggestion === `assessment:${uid}`;
+  s.flags = s.flags.filter((f) => !isProv(f));
+  a.decision = decision;
+  a.decided_at = decision ? nowIso() : undefined;
+  const fl = FLAG_FOR[a.verdict];
+  if (decision === "accepted" && fl) {
+    s.flags.push({ code: fl.code, severity: "warn", detail: `${fl.text}: ${a.explanation}`, source: "reviewer",
+      provenance: { ai_run_id: a.run_id, suggestion: `assessment:${uid}` } });
+  }
+  touch(d, s);
+}
+
+let counter = 0;
+const newId = () => `c${Date.now().toString(36)}${(counter++).toString(36)}`;
+
+export function decideDraft(d: Draft, draftId: string, decision: "accepted" | "rejected", editedText?: string): void {
+  const st = ai(d);
+  const dr = st.checklist_drafts.find((x) => x.id === draftId);
+  if (!dr || dr.decision) return;
+  dr.decision = decision;
+  if (decision === "accepted") {
+    d.review.checklist = [...(d.review.checklist ?? []), {
+      id: newId(), text: (editedText ?? dr.text).trim(), origin: "ai", ai_run_id: dr.run_id, human_verdict: null, ai_check: null,
+    }];
+  }
+  touch(d);
+}
+
+export function addChecklistItem(d: Draft, text: string): string {
+  const id = newId();
+  d.review.checklist = [...(d.review.checklist ?? []), { id, text: text.trim(), origin: "human", human_verdict: null, ai_check: null }];
+  touch(d);
+  return id;
+}
+
+export function editChecklistItem(d: Draft, id: string, text: string): void {
+  const item = (d.review.checklist ?? []).find((x) => x.id === id);
+  if (!item) return;
+  item.text = text;
+  touch(d); // any ai_check is now stale by hash
+}
+
+export function removeChecklistItem(d: Draft, id: string): void {
+  d.review.checklist = (d.review.checklist ?? []).filter((x) => x.id !== id);
+  touch(d);
+}
+
+export function setItemVerdict(d: Draft, id: string, verdict: ChecklistItem["human_verdict"]): void {
+  const item = (d.review.checklist ?? []).find((x) => x.id === id);
+  if (!item) return;
+  item.human_verdict = verdict;
+  item.human_verdict_source = verdict ? "reviewer" : undefined;
+  touch(d);
+}
+
+const VERDICT_MAP = { supported: "met", contradicted: "not_met", unknown: "unclear" } as const;
+
+export function acceptAiCheck(d: Draft, id: string): void {
+  const item = (d.review.checklist ?? []).find((x) => x.id === id);
+  if (!item?.ai_check) return;
+  if (checkStale(d, item)) throw new Error("stale suggestion: re-run the check first");
+  item.human_verdict = VERDICT_MAP[item.ai_check.verdict];
+  item.human_verdict_source = "accepted_ai_suggestion";
+  touch(d);
+}
+
+// ---- rebasing a review onto a reprocessed trajectory -------------------------------------
+/**
+ * The processor's output changed (reprocessed, new rules). Keep every human decision
+ * that still applies: per-step edits are carried to the step with the same key and the
+ * same action; everything that no longer matches is listed in review.rebased.dropped.
+ */
+export function rebaseReview(fresh: Trajectory, reviewed: Trajectory, freshHash: string): Trajectory {
+  const out: Trajectory = structuredClone(fresh);
+  const old = new Map(reviewed.steps.map((s) => [stepKey(s), s]));
+  // reviews made on schema 0.1 steps have no uids: match those by start time + action type
+  const oldByTime = new Map(reviewed.steps.filter((s) => !s.uid).map((s) => [timeKey(s), s]));
+  const dropped: string[] = [];
+  const kept = new Set<Step>();
+  for (const s of out.steps) {
+    const o = old.get(stepKey(s)) ?? oldByTime.get(timeKey(s));
+    if (!o || kept.has(o)) continue;
+    if (o.action.type !== s.action.type) continue;
+    kept.add(o);
+    if (o.reasoning_source === "reviewer") {
+      s.reasoning_original = { text: s.reasoning, source: s.reasoning_source, carried_from: s.carried_from };
+      s.reasoning = o.reasoning;
+      s.reasoning_source = "reviewer";
+      s.carried_from = null;
+    }
+    const sig = (f: Flag) => `${f.code}|${f.detail}`;
+    const dismissed = new Set((o.dismissed_flags ?? []).map(sig));
+    s.dismissed_flags = s.flags.filter((f) => dismissed.has(sig(f)));
+    s.flags = s.flags.filter((f) => !dismissed.has(sig(f)));
+    if (s.reasoning_source === "reviewer") {
+      const mr = s.flags.filter((f) => f.code === "missing_reasoning");
+      s.flags = s.flags.filter((f) => f.code !== "missing_reasoning");
+      s.dismissed_flags.push(...mr);
+    }
+    s.flags.push(...o.flags.filter((f) => f.source === "reviewer"));
+    s.edited = o.edited;
+  }
+  for (const o of reviewed.steps) {
+    const touched = o.edited || o.reasoning_source === "reviewer" || (o.dismissed_flags ?? []).length || o.flags.some((f) => f.source === "reviewer");
+    if (touched && !kept.has(o)) dropped.push(`step ${stepKey(o)}: edits no longer match a step`);
+  }
+  out.review = structuredClone(reviewed.review);
+  if (out.review.ai) {
+    const valid = new Set(out.steps.map(stepKey));
+    const gone = out.review.ai.step_assessments.filter((a) => !valid.has(a.uid));
+    gone.forEach((a) => dropped.push(`AI assessment for ${a.uid}`));
+    out.review.ai.step_assessments = out.review.ai.step_assessments.filter((a) => valid.has(a.uid));
+  }
+  out.review.rebased = { at: nowIso(), from_hash: reviewed.review.base_hash ?? "unknown", dropped };
+  out.review.base_hash = freshHash;
+  return out;
+}

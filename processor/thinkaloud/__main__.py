@@ -10,6 +10,15 @@ from .pipeline import process
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "batch":  # python -m thinkaloud batch ... (also the Docker entrypoint)
+        from .batch import main as batch_main
+
+        return batch_main(argv[1:])
+    if argv and argv[0] in ("export", "validate"):
+        from . import commands
+
+        return {"export": commands.export_main, "validate": commands.validate_main}[argv[0]](argv[1:])
     p = argparse.ArgumentParser(prog="thinkaloud",
                                 description="Turn a recorded session into trajectory.json")
     p.add_argument("sessions", nargs="+", type=Path,

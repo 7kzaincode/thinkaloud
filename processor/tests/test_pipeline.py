@@ -105,7 +105,9 @@ def test_synthetic_v02_session_end_to_end(sample):
     traj = process(sample, log=lambda *_: None)
     assert traj["schema_version"] == "0.2" and traj["source"]["legacy"] is False
     assert traj["qc"]["summary"] == ("18 steps, 1 missing reasoning, 1 idle gap, 1 typed email, "
-                                     "1 missing after-state, 1 masked input")
+                                     "1 redacted value on screen, 1 missing after-state, 1 masked input")
+    email_step = next(s for s in traj["steps"] if s["action"].get("redacted"))
+    assert {"possible_email", "redacted_value_on_screen"} <= {f["code"] for f in email_step["flags"]}
     steps = {s["uid"]: s for s in traj["steps"]}
     scroll = next(s for s in traj["steps"] if s["action"]["type"] == "scroll")
     assert [(r["direction"], r["amount"]) for r in scroll["action"]["runs"]] == [("down", 5.0), ("up", 1.0)]
@@ -144,7 +146,7 @@ def test_legacy_v01_recording_still_processes(tmp_path):
     assert "legacy_recording" in [f["code"] for f in traj["session_flags"]]
     for st in traj["steps"]:
         assert st["observations"]["after"]["status"] == "missing"          # never invented
-        assert st["observations"]["before"]["status"] in ("at_action", "predates_previous_action", "missing")
+        assert st["observations"]["before"]["status"] in ("at_action", "legacy_earlier_action", "missing")
     assert traj["steps"][0]["screenshot"]                                   # 0.1-compatible field kept
     assert traj["final_observation"]["status"] == "ok"
 
