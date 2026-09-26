@@ -73,6 +73,8 @@ STILL_QUEUE_MAX = 6          # PNG encodes waiting; bounds memory (~15 MB per 14
 VIDEO_QUEUE_MAX = 8          # frames waiting for the encoder; overflow drops frames, not sync
 UIA_WAIT_S = 1.5             # how long the writer waits for a UI Automation answer
 UIA_WAIT_STOPPING_S = 0.2    # ... once stop was requested (don't hang the shutdown)
+RETRY_FOCUS = {"timeout", "error", "skipped_stale"}  # transient: ask again rather than mask the burst
+FOCUS_RETRIES = 3            # per typing burst
 DRAG_MIN_PX = 5              # press-to-release distance that makes a click a drag
 WHEEL_DELTA = 120
 WM_MOUSEWHEEL, WM_MOUSEHWHEEL = 0x020A, 0x020E
@@ -363,7 +365,7 @@ class AudioCapture:
                 data = np.zeros_like(data)  # keep the sample clock, drop the content
             if overflow and self.bound is not None:
                 # samples were lost before this chunk: pad with silence so later audio doesn't shift
-                lost = t_cb - (self.bound + (self.samples + len(data)) / SAMPLE_RATE) - self.latency
+                lost = t_cb - (self.bound + (self.samples + len(data)) / SAMPLE_RATE)
                 if lost > 0.02:
                     pad = int(lost * SAMPLE_RATE)
                     wav.writeframes(np.zeros(pad, np.int16).tobytes())
@@ -437,6 +439,8 @@ class Recorder:
         self.shift = False
         self.burst_focus_rid: int | None = None
         self.focus_may_have_moved = False  # set by Tab/Enter/shortcuts: re-check focus on the next key
+        self.focus_epoch = 0                # bumped by every input that can move focus (see UIAWorker)
+        self.masking_unavailable = False    # UI Automation failed to start: password fields can't be detected
         self.mod_alone = None               # a modifier pressed with nothing else (e.g. Win opens Start)
         self.pressed: dict[str, tuple[int, int]] = {}  # button -> press position (drag detection)
         self.n_mask_unknown = 0
@@ -511,11 +515,18 @@ class Recorder:
             if cls == "key":
                 # Tab, Enter, arrows and shortcuts can move keyboard focus to another field
                 self.focus_may_have_moved = not ev.pop("_text", False)
+            if cls == "click" or (cls == "key" and self.focus_may_have_moved):
+                self.focus_epoch += 1
+            epoch = self.focus_epoch
             if cls != "release":
-                self.last_class, self.last_input_t = cls, t
-                self.settle_pending = True
-        if cls in ("click", "key"):
+                self.last_class = cls
+            # a release (end of a drag) also restarts settling, so the after-state is taken after the drop
+            self.last_input_t = t
+            self.settle_pending = True
+        if cls in ("click", "key", "release"):
             ev["_fg"] = winctx.foreground_hwnd()  # at input time; described later by the writer
+        elif cls == "scroll":
+            ev["_under"] = winctx.hwnd_at(ev["x"], ev["y"])
         if candidate and cls != "release":
             ev["before_seq"] = self.stills.request(self.latest_frame_before(t), "before", t)
         if self.uia is not None:
@@ -523,9 +534,10 @@ class Recorder:
                 ev["_uia"] = self.uia.submit("point", t, ev["x"], ev["y"])
                 self.burst_focus_rid = None  # a click may move focus; re-check on next typing
             elif burst_start or self.burst_focus_rid is None and cls == "key":
-                self.burst_focus_rid = self.uia.submit("focus", t)
+                self.burst_focus_rid = self.uia.submit("focus", t, epoch=epoch)
             if cls == "key":
                 ev["_focus"] = self.burst_focus_rid
+                ev["_epoch"] = epoch
         self.inbox.put(ev)
 
     def mouse_filter(self, msg, data):
@@ -538,8 +550,9 @@ class Recorder:
                       "dx": raw / WHEEL_DELTA if horizontal else 0.0,
                       "dy": 0.0 if horizontal else raw / WHEEL_DELTA,
                       "unit": "notch", "injected": bool(data.flags & LLMHF_INJECTED_ANY)}
-                if self.held:
+                if self.held or self.shift:   # Shift+wheel scrolls sideways in most apps
                     ev["mods"] = sorted(self.held | ({"shift"} if self.shift else set()))
+                self.mod_alone = None
                 self._input(ev, "scroll")
             return False  # handled here; skip pynput's own on_scroll
         return True
@@ -587,6 +600,8 @@ class Recorder:
             self.set_paused(not self.paused)
             return
         if key in MODIFIERS:
+            if MODIFIERS[key] in self.held:
+                return  # auto-repeat while held
             self.held.add(MODIFIERS[key])
             self.mod_alone = key if self.mod_alone is None and len(self.held) == 1 and not self.shift else False
             return
@@ -626,6 +641,7 @@ class Recorder:
     def writer_loop(self) -> None:
         events = open(self.out / "events.jsonl", "w", encoding="utf-8")
         focus_cache: dict[int, dict] = {}
+        retries: dict[int, int] = {}
         password_field = False  # last click landed in a password field
         seq = 0
         while True:
@@ -640,7 +656,8 @@ class Recorder:
                 if kind in ("click", "key", "release"):
                     win = winctx.describe_hwnd(fg) if fg else winctx.foreground_window()
                 elif kind == "scroll":
-                    win = winctx.window_at(ev["x"], ev["y"])
+                    under = ev.pop("_under", None)
+                    win = winctx.describe_hwnd(under) if under else winctx.window_at(ev["x"], ev["y"])
                 else:
                     win = None
                 if win:
@@ -651,6 +668,7 @@ class Recorder:
                     ev["target"] = self.uia.result(rid, wait)
                     password_field = bool(ev["target"].get("is_password"))
                 frid = ev.pop("_focus", None)
+                epoch = ev.pop("_epoch", None)
                 if kind == "key":
                     focus = None
                     if frid is not None:
@@ -659,11 +677,24 @@ class Recorder:
                             if len(focus_cache) > 64:
                                 focus_cache.pop(next(iter(focus_cache)))
                         focus = focus_cache[frid]
+                        # a failed lookup is asked again (a few times per burst) instead of masking the
+                        # whole burst; if focus has moved since, the answer comes back focus_moved
+                        if (focus.get("status") in RETRY_FOCUS and retries.get(frid, 0) < FOCUS_RETRIES
+                                and epoch is not None):
+                            retries[frid] = retries.get(frid, 0) + 1
+                            again = self.uia.result(self.uia.submit("focus", ev["t"], epoch=epoch), wait)
+                            if again.get("status") == "ok":
+                                focus_cache[frid] = focus = again
                     reason = None
                     if focus and focus.get("status") == "ok":
                         ev["focus"] = {k: focus.get(k) for k in ("role", "name", "is_password", "status")}
                         if focus.get("is_password"):
                             reason = "password field (UI Automation IsPassword)"
+                    elif focus is not None and focus.get("status") == "unavailable":
+                        # UI Automation never started: same as --no-uia (no field-based masking; QC flags it)
+                        self.masking_unavailable = True
+                        if password_field:
+                            reason = "typed after clicking a password field"
                     elif focus is not None:
                         # UI Automation is running but couldn't say where focus is: fail closed
                         ev["focus"] = {"status": focus.get("status")}
@@ -756,7 +787,7 @@ class Recorder:
         if self.use_uia and sys.platform == "win32":
             from uia import UIAWorker
 
-            self.uia = UIAWorker(self.now)
+            self.uia = UIAWorker(self.now, focus_epoch=lambda: self.focus_epoch)
             self.uia.start()
             self.uia.ready.wait(5)
         self.stills.start()
@@ -845,6 +876,9 @@ class Recorder:
                     "error": getattr(self.uia, "error", None)},
             "input": {"events": self.n_events, "masked_keys": self.n_masked,
                       "masked_focus_unknown": self.n_mask_unknown, "pauses": self.pauses,
+                      "password_masking": ("off" if self.uia is None else
+                                           "unavailable" if self.masking_unavailable or
+                                           getattr(self.uia, "available", None) is False else "on"),
                       "hotkeys": {"stop": "F9", "pause": "F8"}},
             "errors": self.errors,
             "platform": platform.platform(),

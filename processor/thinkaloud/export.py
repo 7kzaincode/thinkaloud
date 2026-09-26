@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -81,6 +82,8 @@ def _clean_flag(f) -> dict | None:
         return None
     out = {"code": f["code"][:64], "severity": f.get("severity") if f.get("severity") in SEVERITIES else "warn",
            "detail": str(f.get("detail", ""))[:1000], "source": "reviewer" if f.get("source") == "reviewer" else "qc"}
+    if isinstance(f.get("subject"), str):
+        out["subject"] = f["subject"][:32]
     prov = f.get("provenance")
     if isinstance(prov, dict):
         out["provenance"] = {"ai_run_id": str(prov.get("ai_run_id", ""))[:80], "suggestion": str(prov.get("suggestion", ""))[:120]}
@@ -107,11 +110,43 @@ def overlay_review(orig: dict, rev: dict) -> dict:
         if isinstance(ro, dict):
             s["reasoning_original"] = {"text": str(ro.get("text", ""))[:5000], "source": ro.get("source"),
                                        "carried_from": ro.get("carried_from")}
-        s["flags"] = [f for f in map(_clean_flag, r.get("flags") or []) if f]
-        s["dismissed_flags"] = [f for f in map(_clean_flag, r.get("dismissed_flags") or []) if f]
+        # QC flags always come from the processor; the reviewer's file only says which were dismissed
+        # (a file that simply omits a flag does not close it) and adds reviewer flags
+        dismissed = [f for f in map(_clean_flag, r.get("dismissed_flags") or []) if f]
+        qc_dismissed = [d for d in dismissed if d["source"] != "reviewer"]
+        flags, closed = [], []
+        for f in s.get("flags", []):
+            (closed if any(dismissal_applies(d, f) for d in qc_dismissed) else flags).append(f)
+        if s.get("reasoning_source") == "reviewer" and (s.get("reasoning") or "").strip():
+            closed += [f for f in flags if f["code"] == "missing_reasoning"]
+            flags = [f for f in flags if f["code"] != "missing_reasoning"]
+        flags += [f for f in map(_clean_flag, r.get("flags") or []) if f and f["source"] == "reviewer"]
+        closed += [d for d in dismissed if d["source"] == "reviewer"]
+        s["flags"], s["dismissed_flags"] = flags, closed
         s["edited"] = bool(r.get("edited"))
     t["review"] = rev.get("review") if isinstance(rev.get("review"), dict) else t.get("review", {})
     return t
+
+
+def dismissal_applies(dismissed: dict, fresh: dict) -> bool:
+    """A reviewer's dismissal closes a processor flag with the same code; for privacy (high)
+    flags only when it is about the same content (same subject hash), so dismissing one typed
+    password never silently closes a different one after reprocessing. Same rule as the
+    viewer's rebaseReview."""
+    if dismissed.get("code") != fresh.get("code"):
+        return False
+    if fresh.get("severity") != "high":
+        return True
+    return dismissed.get("subject") == fresh.get("subject")
+
+
+def split_combo(combo: str) -> tuple[list[str], str]:
+    """"ctrl+shift+t" -> (["ctrl", "shift"], "t"); "ctrl++" -> (["ctrl"], "+")."""
+    if combo.endswith("+") and (combo == "+" or combo.endswith("++")):
+        head = combo[:-1].rstrip("+") if combo != "+" else ""
+        return (head.split("+") if head else []), "+"
+    parts = combo.split("+")
+    return parts[:-1], parts[-1]
 
 
 def normalize(t: dict) -> dict:
@@ -160,8 +195,12 @@ def open_privacy_flags(t: dict) -> list[str]:
 def _action(a: dict) -> dict:
     t = a["type"]
     if t == "click":
-        return {"type": "click", "button": a.get("button", "left"), "count": a.get("count", 1),
-                "x": a["x"], "y": a["y"], "modifiers": a.get("mods", [])}
+        out = {"type": "click", "button": a.get("button", "left"), "count": a.get("count", 1),
+               "x": a["x"], "y": a["y"], "modifiers": a.get("mods", [])}
+        if a.get("drag_problem"):  # a drag that couldn't become a clean drag step: keep its end point
+            out["release"] = a.get("release")
+            out["drag_problem"] = a["drag_problem"]
+        return out
     if t == "drag":
         return {"type": "drag", "button": a.get("button", "left"), "x": a["x"], "y": a["y"],
                 "x2": a["x2"], "y2": a["y2"], "modifiers": a.get("mods", [])}
@@ -172,8 +211,8 @@ def _action(a: dict) -> dict:
             out["keystrokes"] = a["keystrokes"]
         return out
     if t == "key":
-        parts = a["key"].split("+")
-        return {"type": "key", "key": parts[-1], "modifiers": parts[:-1], "repeat": a.get("repeat", 1)}
+        mods, key = split_combo(a["key"])
+        return {"type": "key", "key": key, "modifiers": mods, "repeat": a.get("repeat", 1)}
     if t == "scroll":
         runs = a.get("runs")
         if runs is None:  # schema 0.1: only a net amount survived
@@ -287,8 +326,11 @@ def screenshot_scale(w: int, h: int, long_edge: int = SCREENSHOT_LONG_EDGE) -> f
     return min(1.0, long_edge / max(w, h))
 
 
+LONE_MODIFIER = {"cmd": "super", "alt": "alt", "ctrl": "ctrl", "shift": "shift"}  # pressed on its own
+
+
 def _key_text(key: str, mods: list[str], problems: list) -> str | None:
-    k = XDOTOOL.get(key.lower())
+    k = XDOTOOL.get(key.lower()) or (LONE_MODIFIER.get(key.lower()) if not mods else None)
     if k is None and len(key) == 1:
         k = key if key.isalnum() else PUNCT.get(key)
     if k is None:
@@ -312,13 +354,19 @@ def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list
     sw, sh = round(frame[0] * scale), round(frame[1] * scale)
 
     def coord(x, y):
-        c = [round(x * scale), round(y * scale)]
-        if not (0 <= c[0] < sw and 0 <= c[1] < sh):
+        # the pixel's centre, scaled; always inside the screenshot for a pixel inside the frame
+        c = [min(math.floor((x + 0.5) * scale), sw - 1), min(math.floor((y + 0.5) * scale), sh - 1)]
+        if not (0 <= x < frame[0] and 0 <= y < frame[1]):
+            c = [math.floor((x + 0.5) * scale), math.floor((y + 0.5) * scale)]
             problems.append(("error", f"coordinate {c} outside the {sw}x{sh} screenshot "
                                       "(action on another monitor or outside the captured frame)"))
         return c
 
     t = a["type"]
+    if t == "click" and a.get("drag_problem"):
+        problems.append(("error", f"a drag that can't be represented ({a['drag_problem']}); "
+                                  "exporting it as a click would change its meaning, so it is omitted"))
+        return [], problems
     if t == "click":
         mods = [MOD[m] for m in a.get("modifiers", []) if m in MOD]
         if len(mods) != len(a.get("modifiers", [])):
@@ -425,6 +473,9 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
     step_map = []
     annotations = {}
     safe = "".join(c if c.isalnum() else "_" for c in rid)[:24]
+    pauses = [(p0, p1) for p0, p1 in (rec.get("timeline") or {}).get("pauses", []) if p0 is not None]
+    last_seen_ok = True       # the last screen the conversation showed is the current screen
+    last_end = None
     for s in rec["steps"]:
         calls, problems = claude_calls(s, scale, frame)
         for lvl, msg in problems:
@@ -434,7 +485,22 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
                                  "flags": s["flags"], "ai_assessment": s["ai_assessment"]}
         if not calls:
             step_map.append({"uid": s["uid"], "message_index": None, "tool_use_ids": [], "omitted": True})
+            last_seen_ok = False  # the omitted action may have changed the screen
             continue
+        paused = last_end is not None and any(p0 < s["t_start"] and (p1 is None or p1 > last_end) for p0, p1 in pauses)
+        if messages[1:] and (paused or not last_seen_ok):
+            # the screen the model saw last is not the screen this action was taken on: look again
+            before = img(s["observations"]["before"])
+            why = "after a pause" if paused else "after an omitted step or a missing after-state"
+            if before:
+                look = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_look"
+                messages.append({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": look, "name": "screenshot", "toolset_name": "computer", "input": {}}]})
+                messages.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": look, "toolset_name": "computer", "content": [before]}]})
+                warnings.append(f"step {s['uid']}: extra screenshot turn {why} (the screen may have changed)")
+            else:
+                warnings.append(f"step {s['uid']}: the screen before this action is unknown ({why})")
         uses, results = [], []
         for n, (name, inp) in enumerate(calls):
             tid = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_{n}"
@@ -444,6 +510,7 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
         shot_id = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_shot"
         uses.append({"type": "tool_use", "id": shot_id, "name": "screenshot", "toolset_name": "computer", "input": {}})
         after = img(s["observations"]["after"])
+        last_seen_ok, last_end = bool(after), s["t_end"]
         if after:
             results.append({"type": "tool_result", "tool_use_id": shot_id, "toolset_name": "computer", "content": [after]})
         else:
@@ -461,7 +528,7 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
         "tool_reference": CLAUDE_DOCS,
         "recording_id": rid,
         "screenshot": {"frame_size": list(frame), "screenshot_size": [sw, sh], "scale": scale,
-                       "rule": f"long edge <= {SCREENSHOT_LONG_EDGE}px, aspect kept; x_shot = round(x_frame * scale)"},
+                       "rule": f"long edge <= {SCREENSHOT_LONG_EDGE}px, aspect kept; x_shot = floor((x_frame + 0.5) * scale), clamped to the screenshot"},
         "messages": messages,
         "step_map": step_map,
         "annotations": {"note": "Dataset metadata, not part of the Claude conversation. Narration is human "
@@ -522,77 +589,95 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 continue
             privacy = open_privacy_flags(t)
             if privacy and not allow_privacy_flags:
-                skipped.append({"id": rid, "reason": f"{len(privacy)} open privacy flag(s): " + "; ".join(privacy[:6]),
+                skipped.append({"id": rid, "reason": f"{len(privacy)} open privacy flag(s): " + "; ".join(privacy),
                                 "privacy": privacy})
                 continue
             if privacy:
                 warnings.append(f"{rid}: exported with {len(privacy)} open privacy flag(s) (confirmed by the user)")
-            seen_ids.add(rid)
-            warnings += notes
-            t["session_id"] = rid
-            rdir = tmp / "recordings" / rid
-            (rdir / "assets").mkdir(parents=True)
-            files = set()
-            for s in t["steps"]:
-                for k in ("before", "after"):
-                    f = ((s.get("observations") or {}).get(k) or {}).get("file")
-                    if f:
-                        files.add(f)
-                if not s.get("observations") and s.get("screenshot"):
-                    files.add(s["screenshot"])
-            fin = (t.get("final_observation") or {}).get("file") or t.get("final_screenshot")
-            if fin:
-                files.add(fin)
-            assets = {}
-            for f in sorted(files, key=str):
-                src = safe_frame(session, f)
-                if src is None:
-                    errors.append(f"{rid}: image reference {str(f)[:80]!r} is not a frame of this recording; not exported")
-                    continue
-                dst = f"assets/{Path(f).name}"
-                shutil.copy2(src, rdir / dst)
-                assets[f] = dst
-            media_asset = None
-            if include_media and (session / "playback.mp4").exists():
-                shutil.copy2(session / "playback.mp4", rdir / "assets" / "playback.mp4")
-                media_asset = "assets/playback.mp4"
-            elif include_media:
-                warnings.append(f"{rid}: no playback.mp4 to include")
-            rec = dataset_record(t, assets, media_asset)
-            if "dataset" in formats:
-                (rdir / "trajectory.json").write_text(json.dumps(rec, indent=2, ensure_ascii=False), encoding="utf-8")
-            entry = {"id": rid, "task": rec["recording"]["task"], "outcome": rec["review"]["outcome"],
-                     "steps": len(rec["steps"]),
-                     "dataset": f"recordings/{rid}/trajectory.json" if "dataset" in formats else None}
-            if "claude" in formats:
-                from PIL import Image
+            size = ((t.get("coordinate_space") or {}).get("frame_size")
+                    or [(t.get("screen") or {}).get("w"), (t.get("screen") or {}).get("h")])
+            if not (size and size[0] and size[1]):
+                skipped.append({"id": rid, "reason": "no screen size recorded (the screen capture never started)"})
+                continue
+            n_err, n_warn = len(errors), len(warnings)
+            try:
+                seen_ids.add(rid)
+                warnings += notes
+                t["session_id"] = rid
+                rdir = tmp / "recordings" / rid
+                (rdir / "assets").mkdir(parents=True)
+                files = set()
+                for s in t["steps"]:
+                    for k in ("before", "after"):
+                        f = ((s.get("observations") or {}).get(k) or {}).get("file")
+                        if f:
+                            files.add(f)
+                    if not s.get("observations") and s.get("screenshot"):
+                        files.add(s["screenshot"])
+                fin = (t.get("final_observation") or {}).get("file") or t.get("final_screenshot")
+                if fin:
+                    files.add(fin)
+                assets = {}
+                for f in sorted(files, key=str):
+                    src = safe_frame(session, f)
+                    if src is None:
+                        errors.append(f"{rid}: image reference {str(f)[:80]!r} is not a frame of this recording; not exported")
+                        continue
+                    dst = f"assets/{Path(f).name}"
+                    shutil.copy2(src, rdir / dst)
+                    assets[f] = dst
+                media_asset = None
+                mfile = (t.get("media") or {}).get("file") or "playback.mp4"
+                if not re.fullmatch(r"playback(-[0-9a-f]{8})?\.mp4", str(mfile)):
+                    mfile = "playback.mp4"
+                if include_media and (session / mfile).exists():
+                    shutil.copy2(session / mfile, rdir / "assets" / "playback.mp4")
+                    media_asset = "assets/playback.mp4"
+                elif include_media:
+                    warnings.append(f"{rid}: no playback.mp4 to include")
+                rec = dataset_record(t, assets, media_asset)
+                if "dataset" in formats:
+                    (rdir / "trajectory.json").write_text(json.dumps(rec, indent=2, ensure_ascii=False), encoding="utf-8")
+                entry = {"id": rid, "task": rec["recording"]["task"], "outcome": rec["review"]["outcome"],
+                         "steps": len(rec["steps"]),
+                         "dataset": f"recordings/{rid}/trajectory.json" if "dataset" in formats else None}
+                if "claude" in formats:
+                    from PIL import Image
 
-                scale = screenshot_scale(rec["coordinate_space"]["frame_width"], rec["coordinate_space"]["frame_height"])
-                cdir = tmp / "claude" / "assets" / rid
-                cdir.mkdir(parents=True)
-                cassets = {}
-                for rel in sorted(set(assets.values())):
-                    with Image.open(rdir / rel) as im:
-                        size = (round(im.width * scale), round(im.height * scale))
-                        (im if size == im.size else im.resize(size, Image.LANCZOS)).save(cdir / Path(rel).name)
-                    cassets[rel] = f"claude/assets/{rid}/{Path(rel).name}"
-                crec = claude_record(rec, cassets, scale)
-                (tmp / "claude").mkdir(exist_ok=True)
-                (tmp / "claude" / f"{rid}.json").write_text(json.dumps(crec, indent=2, ensure_ascii=False), encoding="utf-8")
-                entry["claude"] = f"claude/{rid}.json"
-                entry["claude_valid_for_training"] = crec["valid_for_training"]
-                errors += [f"{rid} (claude): {e}" for e in crec["errors"]]
-                warnings += [f"{rid} (claude): {w}" for w in crec["warnings"]]
-            if not rec["review"]["outcome"]:
-                warnings.append(f"{rid}: no human outcome decision; do not use as a positive demonstration")
-            for c in rec["review"]["checklist"]:
-                if c["verdict_outdated"]:
-                    warnings.append(f"{rid}: checklist item {c['id']} was reworded after its verdict was given")
-            for h in rec["review"]["rebase_history"][-1:]:
-                if h.get("dropped"):
-                    warnings.append(f"{rid}: {len(h['dropped'])} review edit(s) could not be carried over when the "
-                                    f"recording was reprocessed")
-            recs.append(entry)
+                    scale = screenshot_scale(rec["coordinate_space"]["frame_width"], rec["coordinate_space"]["frame_height"])
+                    cdir = tmp / "claude" / "assets" / rid
+                    cdir.mkdir(parents=True)
+                    cassets = {}
+                    for rel in sorted(set(assets.values())):
+                        with Image.open(rdir / rel) as im:
+                            size = (round(im.width * scale), round(im.height * scale))
+                            (im if size == im.size else im.resize(size, Image.LANCZOS)).save(cdir / Path(rel).name)
+                        cassets[rel] = f"claude/assets/{rid}/{Path(rel).name}"
+                    crec = claude_record(rec, cassets, scale)
+                    (tmp / "claude").mkdir(exist_ok=True)
+                    (tmp / "claude" / f"{rid}.json").write_text(json.dumps(crec, indent=2, ensure_ascii=False), encoding="utf-8")
+                    entry["claude"] = f"claude/{rid}.json"
+                    entry["claude_valid_for_training"] = crec["valid_for_training"]
+                    errors += [f"{rid} (claude): {e}" for e in crec["errors"]]
+                    warnings += [f"{rid} (claude): {w}" for w in crec["warnings"]]
+                if not rec["review"]["outcome"]:
+                    warnings.append(f"{rid}: no human outcome decision; do not use as a positive demonstration")
+                for c in rec["review"]["checklist"]:
+                    if c["verdict_outdated"]:
+                        warnings.append(f"{rid}: checklist item {c['id']} was reworded after its verdict was given")
+                for h in rec["review"]["rebase_history"][-1:]:
+                    if h.get("dropped"):
+                        warnings.append(f"{rid}: {len(h['dropped'])} review edit(s) could not be carried over when the "
+                                        f"recording was reprocessed")
+                recs.append(entry)
+            except Exception as e:  # one broken recording must not take the whole export down
+                shutil.rmtree(tmp / "recordings" / rid, ignore_errors=True)
+                shutil.rmtree(tmp / "claude" / "assets" / rid, ignore_errors=True)
+                (tmp / "claude" / f"{rid}.json").unlink(missing_ok=True)
+                del errors[n_err:], warnings[n_warn:]
+                seen_ids.discard(rid)
+                skipped.append({"id": rid, "reason": f"export failed: {type(e).__name__}: {str(e)[:200]}"})
+                continue
         if not recs:
             shutil.rmtree(tmp, ignore_errors=True)
             return {"ok": False, "error": "nothing was exported", "requested": len(sessions), "recordings": 0,

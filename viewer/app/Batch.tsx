@@ -97,6 +97,7 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
   const exportable = [...selected].filter((id) => rows.find((r) => r.id === id)?.processed);
   const inFlight = (r: SessionSummary) => r.processing?.state === "running" || r.processing?.state === "queued";
   const newIds = rows.filter((r) => !r.processed && !inFlight(r)).map((r) => r.id);
+  const selectable = rows.filter((r) => selected.has(r.id) && !inFlight(r)).map((r) => r.id);
 
   return (
     <main className="index wide">
@@ -137,7 +138,10 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
         <label className="small">Workers <select value={concurrency} onChange={(e) => setConcurrency(+e.target.value)} aria-label="Concurrent workers">
           {[1, 2, 3, 4].map((n) => <option key={n}>{n}</option>)}</select></label>
         <label className="small"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> reprocess up-to-date</label>
-        <button className="btn" disabled={!selected.size} onClick={() => process([...selected])}>Process selected ({selected.size})</button>
+        <button className="btn" disabled={!selectable.length} onClick={() => process(selectable)}
+          title={selectable.length < selected.size ? "Recordings already being processed are left out" : undefined}>
+          Process selected ({selectable.length})
+        </button>
         <button className="btn" disabled={!newIds.length} onClick={() => process(newIds)}>Process all new ({newIds.length})</button>
         <button className="btn" disabled={!exportable.length} onClick={() => setExporting(true)}>Export selected ({exportable.length})</button>
       </div>

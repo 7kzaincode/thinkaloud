@@ -212,13 +212,15 @@
           "code": "possible_email",
           "severity": "high",
           "detail": "Typed text contains an email address.",
-          "source": "qc"
+          "source": "qc",
+          "subject": "ae240749"
         },
         {
           "code": "redacted_value_on_screen",
           "severity": "high",
           "detail": "The typed value was removed from the action, but the field (and so the after-state and later screenshots) may still show it. Check the images before sharing; run with --ocr to scan for emails.",
-          "source": "qc"
+          "source": "qc",
+          "subject": "ae240749"
         }
       ]
     },

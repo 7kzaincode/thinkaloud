@@ -114,6 +114,18 @@ def foreground_window() -> dict | None:
         return None
 
 
+def hwnd_at(x: int, y: int) -> int | None:
+    """Top-level window handle under a point. Cheap enough for an input hook."""
+    if not IS_WINDOWS:
+        return None
+    try:
+        hwnd = _user32.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+        root = _user32.GetAncestor(hwnd, GA_ROOT) if hwnd else None
+        return int(root or hwnd) if (root or hwnd) else None
+    except Exception:
+        return None
+
+
 def window_at(x: int, y: int) -> dict | None:
     """Top-level window under a physical screen point (where the wheel scrolls)."""
     if not IS_WINDOWS:

@@ -7,13 +7,19 @@ export interface Flag {
   source: "qc" | "reviewer";
   /** set when a reviewer flag was created by accepting an AI suggestion */
   provenance?: { ai_run_id: string; suggestion: string };
+  /** privacy flags: hash of the content the flag is about (dismissals only carry over to the same content) */
+  subject?: string;
 }
 
 export interface ScrollEvent { t: number; x: number; y: number; dx: number; dy: number; raw?: number }
 export interface ScrollRun { direction: "up" | "down" | "left" | "right" | "none"; amount: number; t_start: number; t_end: number; n_events: number }
 
 export type Action =
-  | { type: "click"; x: number; y: number; button: string; count?: number; mods?: string[]; screen_x?: number; screen_y?: number }
+  | {
+      type: "click"; x: number; y: number; button: string; count?: number; mods?: string[]; screen_x?: number; screen_y?: number;
+      /** a drag that couldn't become a clean drag step (other input in between, or a double-click drag) */
+      release?: { x: number; y: number; t: number }; drag_problem?: string;
+    }
   | {
       type: "drag"; x: number; y: number; x2: number; y2: number; button: string; mods?: string[];
       screen_x?: number; screen_y?: number; screen_x2?: number; screen_y2?: number;
@@ -54,6 +60,9 @@ export interface Target {
   url?: string;
   url_status?: string;
   latency_ms?: number;
+  /** found by walking down from a Document hit where overlapping siblings contained the point */
+  ambiguous?: boolean;
+  hit_method?: "point" | "descend";
   reliable?: boolean;
   error?: string;
 }
@@ -114,6 +123,8 @@ export interface AiRun {
   id: string;
   kind: "narration" | "checklist" | "final_screen";
   at: string;
+  /** "anthropic" | "gemini"; absent on runs made before providers were configurable (Anthropic) */
+  provider?: string;
   model: string;
   status: "ok" | "error";
   note?: string;

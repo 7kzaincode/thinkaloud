@@ -39,7 +39,7 @@ def test_click_variants(button, count, name):
 
 def test_click_modifiers_scale_and_unsupported():
     c, _ = calls({"type": "click", "button": "left", "count": 1, "x": 101, "y": 51, "modifiers": ["ctrl", "shift"]}, 0.5)
-    assert c == [("left_click", {"coordinate": [50, 26], "text": "ctrl+shift"})]
+    assert c == [("left_click", {"coordinate": [50, 25], "text": "ctrl+shift"})]   # pixel 51 lies in scaled pixel 25
     c, p = calls({"type": "click", "button": "right", "count": 2, "x": 1, "y": 1, "modifiers": []})
     assert c == [] and p[0][0] == "error"
     c, p = calls({"type": "click", "button": "left", "count": 1, "x": 1700, "y": 10, "modifiers": []})
@@ -305,4 +305,121 @@ def test_validator_rejects_non_png_images_and_zip_copies_are_cleaned(processed, 
             f["sha256"], f["bytes"] = hashlib.sha256(img.read_bytes()).hexdigest(), img.stat().st_size
     (bundle / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
     rep = ds.validate_bundle(bundle)
-    assert any("not a PNG" in e for e in rep["errors"])
+    assert any("not a complete PNG" in e for e in rep["errors"])
+
+
+def test_last_pixel_of_a_4k_frame_stays_inside_the_screenshot():
+    c, p = claude_calls(step({"type": "click", "button": "left", "count": 1, "x": 3839, "y": 2159, "modifiers": []}),
+                        0.5, (3840, 2160))
+    assert c == [("left_click", {"coordinate": [1919, 1079]})] and not p
+
+
+def test_lone_win_and_alt_and_ctrl_plus():
+    assert calls({"type": "key", "key": "cmd", "modifiers": [], "repeat": 1})[0] == [("key", {"text": "super"})]
+    assert calls({"type": "key", "key": "alt", "modifiers": [], "repeat": 1})[0] == [("key", {"text": "alt"})]
+    from thinkaloud.export import split_combo, _action
+    assert split_combo("ctrl++") == (["ctrl"], "+") and split_combo("+") == ([], "+")
+    assert split_combo("ctrl+shift+t") == (["ctrl", "shift"], "t")
+    a = _action({"type": "key", "key": "ctrl++"})
+    assert (a["key"], a["modifiers"]) == ("+", ["ctrl"])
+    assert calls(a)[0] == [("key", {"text": "ctrl+plus"})]
+
+
+def test_unrepresentable_drag_is_an_error_not_a_click():
+    c, p = calls({"type": "click", "button": "left", "count": 1, "x": 5, "y": 5, "modifiers": [],
+                  "release": {"x": 300, "y": 5, "t": 2.0}, "drag_problem": "other input happened during the drag"})
+    assert c == [] and p[0][0] == "error" and "drag" in p[0][1]
+
+
+def test_after_a_pause_the_model_sees_the_screen_it_acted_on(processed, tmp_path):
+    t = json.loads((processed / "trajectory.json").read_text(encoding="utf-8"))
+    s1, s2 = t["steps"][9], t["steps"][10]                    # two clicks with images
+    t.setdefault("timeline", {})["pauses"] = [[s1["t_end"] + 0.01, s2["t_start"] - 0.01]]
+    (processed / "trajectory.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out", allow_privacy_flags=True)
+    assert r["validation"]["ok"], r["validation"]["errors"]
+    b = ds.load_bundle(r["bundle"])
+    rec = next(b.recordings())
+    claude = json.loads((Path(r["bundle"]) / "claude" / "synthetic-flight.json").read_text(encoding="utf-8"))
+    looks = [m for m in claude["messages"] if m["role"] == "assistant"
+             and [u["id"] for u in m["content"]] == [f"toolu_synthetic_flight_{s2['uid']}_look"]]
+    assert len(looks) == 1
+    i = claude["messages"].index(looks[0])
+    shown = claude["messages"][i + 1]["content"][0]["content"][0]["source"]["path"]
+    before = next(s for s in rec["steps"] if s["uid"] == s2["uid"])["observations"]["before"]["image"]
+    assert Path(shown).name == Path(before).name
+    assert any("after a pause" in w for w in claude["warnings"])
+    b.close()
+
+
+def test_export_rebuilds_flags_from_the_processor_and_matches_privacy_dismissals_by_content(processed, tmp_path):
+    t = review(processed, outcome="pass")
+    i = next(k for k, s in enumerate(t["steps"]) if any(f["code"] == "possible_email" for f in s["flags"]))
+    s = t["steps"][i]
+    s["flags"] = []                                           # a file that just omits the flags ...
+    (processed / "trajectory.reviewed.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out")
+    assert r["ok"] is False and r["skipped"][0]["privacy"]    # ... does not close them
+    stale = {"code": "possible_email", "severity": "high", "detail": "x", "source": "qc", "subject": "00000000"}
+    s["dismissed_flags"] = [stale, {**stale, "code": "redacted_value_on_screen"}]
+    (processed / "trajectory.reviewed.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out2")
+    assert r["ok"] is False, "a dismissal of different content must not close the flag"
+    orig = json.loads((processed / "trajectory.json").read_text(encoding="utf-8"))["steps"][i]["flags"]
+    s["dismissed_flags"] = [f for f in orig if f["severity"] == "high"]
+    (processed / "trajectory.reviewed.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out3")
+    assert r["ok"] and not r["skipped"]
+
+
+def test_one_broken_recording_is_skipped_not_fatal(processed, tmp_path):
+    broken = tmp_path / "broken-rec"
+    shutil.copytree(processed, broken)
+    t = json.loads((broken / "trajectory.json").read_text(encoding="utf-8"))
+    t["screen"] = {"w": 0, "h": 0}
+    t.setdefault("coordinate_space", {})["frame_size"] = [0, 0]
+    (broken / "trajectory.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed, broken], tmp_path / "out", allow_privacy_flags=True)
+    assert r["ok"] and r["recordings"] == 1 and r["validation"]["ok"]
+    assert r["skipped"][0]["id"] == "broken-rec" and "screen size" in r["skipped"][0]["reason"]
+
+
+def _resign(bundle: Path, rel: str):
+    man = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    for f in man["files"]:
+        if f["path"] == rel:
+            p = bundle / rel
+            f["sha256"], f["bytes"] = hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_size
+    (bundle / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    return man
+
+
+def test_validator_catches_truncated_images_imageless_captures_and_escaping_paths(processed, tmp_path):
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False, allow_privacy_flags=True)
+    b = Path(r["bundle"])
+    rec_rel = "recordings/synthetic-flight/trajectory.json"
+    img = next((b / "recordings" / "synthetic-flight" / "assets").glob("*.png"))
+    img.write_bytes(img.read_bytes()[:100])                                  # a cut-off PNG
+    _resign(b, f"recordings/synthetic-flight/assets/{img.name}")
+    assert any("not a complete PNG" in e for e in ds.validate_bundle(b)["errors"])
+    rec = json.loads((b / rec_rel).read_text(encoding="utf-8"))
+    st = next(s for s in rec["steps"] if s["observations"]["after"]["status"] == "settled")
+    st["observations"]["after"]["image"] = None                             # "settled" but no image
+    (b / rec_rel).write_text(json.dumps(rec), encoding="utf-8")
+    man = _resign(b, rec_rel)
+    assert any("captured) but has no image" in e for e in ds.validate_bundle(b)["errors"])
+    man["files"].append({"path": "../outside.txt", "bytes": 1, "sha256": "0"})
+    (b / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    assert any("outside the bundle" in e for e in ds.validate_bundle(b)["errors"])
+
+
+def test_validator_cross_checks_claude_coordinates_against_the_dataset(processed, tmp_path):
+    r = export_bundle([processed], tmp_path / "out", zip_bundle=False, allow_privacy_flags=True)
+    b = Path(r["bundle"])
+    rel = "claude/synthetic-flight.json"
+    c = json.loads((b / rel).read_text(encoding="utf-8"))
+    use = next(u for m in c["messages"] if m["role"] == "assistant" for u in m["content"] if u["name"] == "left_click")
+    use["input"]["coordinate"] = [use["input"]["coordinate"][0] + 7, use["input"]["coordinate"][1]]
+    (b / rel).write_text(json.dumps(c), encoding="utf-8")
+    _resign(b, rel)
+    assert any("does not match the dataset action" in e for e in ds.validate_bundle(b)["errors"])

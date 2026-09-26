@@ -1,71 +1,58 @@
 # 60-second demo script
 
-**Setup before you hit record.** Pick a real task that takes about 40 seconds and involves a few
-decisions. Good example: on Google Flights, find the cheapest *nonstop* Toronto → San Francisco
-flight on a date two weeks out. It works because the cheapest result usually has a stop, so you have
-to reason past it. Close anything private. Set your mic as the default input (not Voicemod).
-
-Record the demo video with OBS or the Xbox Game Bar (Win+Alt+R) running at the same time as thinkaloud.
+**Setup.**
+- **Pick a task.** Choose a real task of about 40 seconds that involves a decision. Example: on Google Flights, find the cheapest *nonstop* Toronto → San Francisco flight two weeks out. The cheapest result usually has a stop, so you have to reason past it.
+- **Clear the screen.** Close anything private, because the whole monitor is captured.
+- **Record the video.** Use OBS or Xbox Game Bar (Win+Alt+R) alongside thinkaloud.
+- **Prepare the app.** Open the thinkaloud desktop app. Optional: add an Anthropic key under Settings to show AI suggestions.
 
 ---
 
-### 0:00–0:08 · Hook (face or voiceover over the terminal)
+### 0:00–0:07 · Hook (voiceover over the Recordings page)
 
-> "AI labs are buying recordings of experts using computers. The recording is easy. What's hard is
-> capturing *why* they did each thing, and knowing whether they actually got it right. This is
-> thinkaloud."
+> "AI labs buy recordings of experts using computers. Recording clicks is easy. The hard part is capturing *why*
+> they did each thing, and knowing whether they actually got it right. This is thinkaloud."
 
-On screen: run
+### 0:07–0:12 · New recording
 
-```
-python recorder/record.py --task "Cheapest nonstop Toronto to SF, Oct 17" --criteria "Nonstop flight selected, cheapest one"
-```
+1. Click **New recording**.
+2. Type the task, then what "done" looks like: *"Nonstop flight selected, and it's the cheapest nonstop."*
+3. Show the mic meter moving and click **Start recording**.
 
-### 0:08–0:30 · Do the task while narrating (sped up to ~2x in editing)
+### 0:12–0:30 · Do the task while narrating (speed it up ~2× in editing)
 
-Say it naturally, *before* each action:
+Say it *before* each action:
 
 > "Airport codes, not cities. Toronto has two airports and I want Pearson."
-> "Sorting by price, because the default is 'best', which is basically ads."
-> "The top result has a stop in Chicago. The task says nonstop, so I'm filtering instead of taking it."
+> "Sorting by price, because the default is 'best'."
+> "The top result stops in Chicago. The task says nonstop, so I'm filtering instead."
 > "Air Canada, nonstop, that's the one."
 
-Press **F9**. Terminal prints `Saved sessions/... (41.2s, 63 events, 14 frames, audio=yes)`.
+Point at the pill at the bottom (timer, mic level, Pause). Press **F9**. Processing runs and the review opens by itself.
 
-### 0:30–0:38 · Process
+### 0:30–0:50 · Review (the main shot)
 
-```
-python -m thinkaloud ../sessions/<that folder>
-```
+1. **Before / After tabs** on a click step.
+   > "For every action: the screen right before, the screen after it settled, what they did ('Clicked the Price button', straight from Windows accessibility), and why, in their own words, with when they said it."
+2. **Scroll step.** Show a long scroll with a pause: one step, with the direction runs listed.
+   > "A scroll is one action, not fifteen."
+3. **Replay tab.** Press play and let the selected step follow the video. Click a step and the video seeks.
+4. **Missing reasoning flag.** Press `n` to jump to it and type a sentence. The flag moves to dismissed, and the original is kept.
+5. *(If a key is set)* **Check narration.** A suggestion appears with Accept / Dismiss.
+   > "AI only suggests. Nothing changes until a person accepts it."
 
-> "Whisper transcribes it, raw events get merged into steps, and each sentence gets attached to the
-> action it was explaining."
+### 0:50–1:00 · End state and export
 
-Let the QC summary line sit on screen for a beat: `14 steps, 1 missing reasoning, ...`
+1. On **End state**, mark the checklist item *met*, then click **Task done** in the top bar.
+2. Click **Export…**. The dialog shows "1 of 1 recordings exported" and that the bundle validated, in both the dataset format and Claude's computer-use format.
 
-### 0:38–0:55 · Review in the viewer (the main shot)
-
-1. Open the session. Point at the **timeline**: grey bars are narration, ticks are actions, the red
-   tick is a privacy flag.
-   > "Every step: the screen they saw, what they did, and why, in their own words."
-2. Press `→` a couple of times. The click marker moves on the screenshot and the serif reasoning changes.
-3. Press `n` to jump to a flag. If you get a real *missing reasoning* flag, type a sentence into the
-   box and show that the flag moves to dismissed.
-   > "QC catches steps with no explanation, long silent pauses, and anything that looks like a
-   > password or an email, which gets redacted before it leaves the machine."
-4. *(Optional, 3 s)* switch to the synthetic sample to show the redacted password step, if your
-   real task didn't have one.
-
-### 0:55–1:00 · Close
-
-Press `e` for **End state**, click **Task done**, then **Export JSON**.
-
-> "And a reviewer checks the final screen against what 'done' was supposed to mean. That's the part
-> my last project, teachAR, never figured out."
+> "A reviewer checks the final screen against what 'done' meant. That's the part my last project, teachAR,
+> never figured out."
 
 ---
 
 **Tips**
-- Do one take of the task without the video recorder first to get the narration rhythm down.
-- If Whisper mangles a word, fix it in the viewer on camera. That's the product working.
-- Keep the terminal font large (18pt+) and the browser at 110% zoom so it reads on a phone.
+- **Rehearse.** Do one take without the screen recorder to get the narration rhythm.
+- **Fix transcripts on camera.** If Whisper mangles a word, fix it in the Why box. That's the product working.
+- **Privacy flags.** If your task types an email, export will skip the recording until you check the privacy flags. Show that too, since it's a feature.
+- **Readability.** Keep the app window large and the zoom at 110% so it reads on a phone.

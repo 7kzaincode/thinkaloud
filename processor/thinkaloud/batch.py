@@ -148,7 +148,27 @@ class Job:
                     continue
                 if age <= STALE_S:
                     return False
-                lock.unlink(missing_ok=True)  # the holder stopped heart-beating: take over
+                # the holder stopped heart-beating: take over. Renaming to a unique name is atomic,
+                # so when two jobs see the same stale lock only one of them moves it away; the other
+                # then finds the winner's fresh lock (or nothing, and retries the exclusive create).
+                grave = session / f"processing.lock.stale-{os.getpid()}-{secrets.token_hex(3)}"
+                try:
+                    os.rename(lock, grave)
+                except OSError:
+                    continue
+                try:
+                    fresh = time.time() - grave.stat().st_mtime <= STALE_S
+                except OSError:
+                    fresh = False
+                if fresh:
+                    # between our check and the rename another job replaced the stale lock with its
+                    # own: give it back (rename fails if a lock exists again, which is also fine)
+                    try:
+                        os.rename(grave, lock)
+                    except OSError:
+                        grave.unlink(missing_ok=True)
+                    return False
+                grave.unlink(missing_ok=True)
         return False
 
     def release(self, session: Path) -> None:
@@ -264,8 +284,10 @@ class Job:
         recover(self.jobs_dir)
         for s in self.sessions:
             cur = read_json(s / "processing.json") or {}
-            lock = s / "processing.lock"
-            held = lock.exists() and time.time() - lock.stat().st_mtime <= STALE_S
+            try:
+                held = time.time() - (s / "processing.lock").stat().st_mtime <= STALE_S
+            except OSError:  # no lock, or released between checks
+                held = False
             if not held:
                 cur.update(state="queued", job_id=self.id, heartbeat_at=now_iso(), error=None)
                 write_json(s / "processing.json", cur)

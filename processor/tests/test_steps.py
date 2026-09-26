@@ -177,3 +177,25 @@ def test_no_double_click_across_pause_and_system_rectangle():
     assert [s["action"].get("count", 1) for s in merge_events(ev)] == [1, 1]
     far = [click(1.0, x=10), click(1.2, x=15)]          # 5 px apart: outside the 4x4 double-click box
     assert len(merge_events(far)) == 2
+
+
+def test_keystrokes_keep_everything_typed_after_the_last_backspace():
+    ev = keys(1.0, "helo") + [{"t": 1.45, "type": "key", "key": "backspace"}] + keys(1.5, "lo")
+    a = merge_events(ev)[0]["action"]
+    assert a["text"] == "hello" and a["keystrokes"] == "helo⌫lo" and a["backspaces"] == 1
+
+
+def test_drag_with_other_input_in_between_is_kept_and_marked():
+    ev = [dict(click(1.0, x=100, y=100), seq=1), dict(scroll(1.2, -1, x=100, y=100), seq=2),
+          {"t": 1.5, "type": "release", "x": 300, "y": 120, "button": "left", "seq": 3}]
+    steps = merge_events(ev)
+    a = steps[0]["action"]
+    assert [s["action"]["type"] for s in steps] == ["click", "scroll"]
+    assert a["release"] == {"x": 300, "y": 120, "t": 1.5} and "other input" in a["drag_problem"]
+
+
+def test_double_click_drag_is_marked_not_dropped():
+    ev = [dict(click(1.0), seq=1), dict(click(1.1), seq=2),
+          {"t": 1.6, "type": "release", "x": 300, "y": 40, "button": "left", "seq": 3}]
+    a = merge_events(ev)[0]["action"]
+    assert a["count"] == 2 and a["drag_problem"] == "double-click drag" and a["release"]["x"] == 300

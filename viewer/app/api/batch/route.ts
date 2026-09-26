@@ -18,18 +18,39 @@ export async function POST(req: Request) {
   if (!ids.length) return NextResponse.json({ error: "no recordings selected" }, { status: 400 });
   const concurrency = Math.min(4, Math.max(1, Number(body?.concurrency) || 2));
   const dirs: string[] = [];
+  const busy: string[] = [];
   for (const id of ids) {
     const d = await sessionDir(id);
-    if (d) dirs.push(d);
+    if (!d) continue;
+    if (await inFlight(d)) busy.push(id);
+    else dirs.push(d);
   }
-  if (!dirs.length) return NextResponse.json({ error: "none of the recordings exist" }, { status: 404 });
+  if (!dirs.length) {
+    return busy.length
+      ? NextResponse.json({ error: "already being processed", busy }, { status: 409 })
+      : NextResponse.json({ error: "none of the recordings exist" }, { status: 404 });
+  }
   await fs.mkdir(JOBS(), { recursive: true });
   const jobId = `b${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomBytes(2).toString("hex")}`;
   const args = ["batch", ...dirs, "--jobs", JOBS(), "--concurrency", String(concurrency), "--job-id", jobId, "--runner", "local"];
   if (body?.force) args.push("--force");
   const started = await startEngine(args);
   if ("error" in started) return NextResponse.json({ error: started.error }, { status: 500 });
-  return NextResponse.json({ job_id: jobId, pid: started.pid });
+  return NextResponse.json({ job_id: jobId, pid: started.pid, busy });
+}
+
+/** Queued or running with a live heartbeat, or locked by a live processor (desktop app or batch job). */
+async function inFlight(dir: string): Promise<boolean> {
+  const fresh = (ms: number) => Date.now() - ms <= 30_000;
+  try {
+    if (fresh((await fs.stat(path.join(/*turbopackIgnore: true*/ dir, "processing.lock"))).mtimeMs)) return true;
+  } catch { /* no lock */ }
+  try {
+    const st = JSON.parse(await fs.readFile(path.join(/*turbopackIgnore: true*/ dir, "processing.json"), "utf-8"));
+    return (st.state === "queued" || st.state === "running") && fresh(Date.parse(st.heartbeat_at ?? 0));
+  } catch {
+    return false;
+  }
 }
 
 export async function GET(req: Request) {
