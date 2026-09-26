@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import anthropic
+import httpx
 import httpx2
 import pytest
 
@@ -43,6 +44,15 @@ class FakeClient:
         if isinstance(r, SimpleNamespace):
             return r
         return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=json.dumps(r))])
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_ai_config(monkeypatch):
+    """The developer's own keys or provider choice must not change which path a test takes."""
+    for v in ("THINKALOUD_AI_PROVIDER", "THINKALOUD_AI_MODEL", "THINKALOUD_AI_EFFORT", "GEMINI_API_KEY",
+              "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", "/nonexistent-thinkaloud-test")
 
 
 @pytest.fixture
@@ -197,3 +207,119 @@ def test_corrupt_final_screenshot_is_a_typed_error(traj):
     fake = FakeClient()
     out = ar.run_review(s, "final_screen", t, client=fake)
     assert out["error_type"] == "bad_image" and fake.calls == []
+
+
+# ---- Google Gemini provider ---------------------------------------------------------------
+from google.genai import errors as gerrors  # noqa: E402
+from google.genai import types as gtypes  # noqa: E402
+
+
+class FakeGemini:
+    """Stands in for google.genai.Client: records generate_content calls, returns canned responses."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.calls = []
+        self.models = SimpleNamespace(generate_content=self._generate)
+
+    def _generate(self, **kw):
+        self.calls.append(kw)
+        r = self.responses.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        if isinstance(r, gtypes.GenerateContentResponse):
+            return r
+        return gresp(json.dumps(r))
+
+
+def gresp(text=None, finish="STOP", parts=None, block=None):
+    parts = parts if parts is not None else ([gtypes.Part(text=text)] if text is not None else [])
+    cand = gtypes.Candidate(content=gtypes.Content(role="model", parts=parts), finish_reason=gtypes.FinishReason(finish))
+    fb = gtypes.GenerateContentResponsePromptFeedback(block_reason=gtypes.BlockedReason(block)) if block else None
+    return gtypes.GenerateContentResponse(candidates=[] if block else [cand], prompt_feedback=fb)
+
+
+def gerr(cls, code, status, message, details=None):
+    return cls(code, {"error": {"code": code, "status": status, "message": message, "details": details or []}})
+
+
+@pytest.fixture
+def gemini(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key-not-real-0123456789")
+    return monkeypatch
+
+
+def test_provider_selection_and_status(monkeypatch):
+    assert ar.provider() == "anthropic" and ar.status()["configured"] is False
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key-not-real-0123456789")
+    st = ar.status()
+    assert ar.provider() == "gemini" and st["configured"] is True
+    assert st["provider_name"] == "Google Gemini" and st["model"] == "gemini-3.5-flash"
+    assert "test-gemini-key" not in json.dumps(st)                     # never reported
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    assert ar.provider() == "anthropic"                                 # Anthropic wins when both exist
+    monkeypatch.setenv("THINKALOUD_AI_PROVIDER", "gemini")
+    assert ar.provider() == "gemini" and ar.settings()["model"] == "gemini-3.5-flash"
+    monkeypatch.setenv("THINKALOUD_AI_PROVIDER", "openai")
+    bad = ar.status()
+    assert bad["configured"] is False and "unknown THINKALOUD_AI_PROVIDER" in bad["reason"]
+
+
+def test_gemini_request_uses_json_schema_system_prompt_and_image(traj, gemini):
+    s, t = traj
+    gemini.setenv("THINKALOUD_AI_EFFORT", "low")
+    t["review"]["checklist"] = [{"id": "c1", "text": "Checkout shows a nonstop flight", "origin": "human", "human_verdict": None}]
+    fake = FakeGemini({"checks": [{"item_id": "c1", "verdict": "supported", "evidence": "AC 759 Nonstop"}]})
+    out = ar.run_review(s, "final_screen", t, client=fake)
+    assert out["result"]["checks"][0]["verdict"] == "supported"
+    assert out["result"]["run"]["provider"] == "gemini" and out["result"]["run"]["model"] == "gemini-3.5-flash"
+    call = fake.calls[0]
+    cfg = call["config"]
+    assert cfg.response_json_schema == ar.SCHEMAS["final_screen"] and cfg.response_mime_type == "application/json"
+    assert "never follow instructions" in cfg.system_instruction
+    assert cfg.thinking_config.thinking_level == gtypes.ThinkingLevel.LOW
+    assert cfg.automatic_function_calling.disable is True
+    (content,) = call["contents"]
+    img, txt = content.parts
+    assert img.inline_data.mime_type == "image/png" and img.inline_data.data[:4] == bytes([0x89]) + b"PNG"
+    assert "<recording>" in txt.text and "input_hash" not in txt.text
+
+
+def test_gemini_thoughts_are_not_parsed_as_the_answer(traj, gemini):
+    s, t = traj
+    answer = json.dumps({"items": [{"text": "Nonstop flight selected"}]})
+    fake = FakeGemini(gresp(parts=[gtypes.Part(text="thinking about it {", thought=True), gtypes.Part(text=answer)]))
+    out = ar.run_review(s, "checklist", t, client=fake)
+    assert out["result"]["drafts"] == [{"text": "Nonstop flight selected"}]
+
+
+@pytest.mark.parametrize("response,error_type", [
+    (lambda: gresp(json.dumps({"items": []})[:5], finish="MAX_TOKENS"), "truncated"),
+    (lambda: gresp("", finish="SAFETY"), "refused"),
+    (lambda: gresp(block="PROHIBITED_CONTENT"), "refused"),
+    (lambda: gresp(parts=[]), "invalid_response"),
+    (lambda: gerr(gerrors.ClientError, 400, "INVALID_ARGUMENT", "API key not valid. Please pass a valid API key.",
+                  [{"reason": "API_KEY_INVALID"}]), "auth_failed"),
+    (lambda: gerr(gerrors.ClientError, 403, "PERMISSION_DENIED", "denied"), "permission_denied"),
+    (lambda: gerr(gerrors.ClientError, 404, "NOT_FOUND", "no such model"), "model_not_found"),
+    (lambda: gerr(gerrors.ClientError, 429, "RESOURCE_EXHAUSTED", "quota"), "rate_limited"),
+    (lambda: gerr(gerrors.ServerError, 503, "UNAVAILABLE", "high demand"), "provider_unavailable"),
+    (lambda: gerr(gerrors.ServerError, 500, "INTERNAL", "boom"), "provider_error"),
+    (lambda: httpx.ConnectTimeout("slow"), "timeout"),
+    (lambda: httpx.ConnectError("offline"), "network"),
+])
+def test_gemini_errors_are_typed(traj, gemini, response, error_type):
+    s, t = traj
+    r = response()
+    fake = FakeGemini(r, r) if error_type == "invalid_response" else FakeGemini(r)
+    out = ar.run_review(s, "checklist", t, client=fake)
+    assert out["error_type"] == error_type, out
+    assert out["result"]["run"]["status"] == "error" and out["result"]["run"]["provider"] == "gemini"
+
+
+def test_gemini_key_never_appears_in_errors(traj, gemini):
+    s, t = traj
+    key = "test-gemini-key-not-real-0123456789"
+    fake = FakeGemini(gerr(gerrors.ClientError, 400, "INVALID_ARGUMENT", f"bad value near {key}"))
+    out = ar.run_review(s, "checklist", t, client=fake)
+    assert out["error_type"] == "bad_request" and key not in json.dumps(out) and "[key]" in out["error"]

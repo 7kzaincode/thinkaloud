@@ -49,7 +49,9 @@ export function computeMetrics(t: Trajectory): SessionMetrics {
   const items = t.review.checklist ?? [];
   const cl = { items: items.length, met: 0, not_met: 0, unclear: 0, undecided: 0 };
   for (const it of items) {
-    if (it.human_verdict === "met") cl.met++;
+    // a verdict given for earlier wording is not a decision about the item as it reads now
+    if (it.human_verdict && it.verdict_text !== undefined && it.verdict_text !== it.text) cl.undecided++;
+    else if (it.human_verdict === "met") cl.met++;
     else if (it.human_verdict === "not_met") cl.not_met++;
     else if (it.human_verdict === "unclear") cl.unclear++;
     else cl.undecided++;

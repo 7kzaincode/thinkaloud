@@ -110,20 +110,35 @@ function waitForHttp(url, timeoutMs = 90000) {
   });
 }
 
-// ---------- Anthropic API key (optional; for AI-assisted review) -----------------------
-// Stored encrypted with the OS (DPAPI on Windows) via safeStorage. It only ever goes to the
+// ---------- AI provider keys (optional; for AI-assisted review) --------------------------
+// Stored encrypted with the OS (DPAPI on Windows) via safeStorage. A key only ever goes to the
 // local viewer server's environment; it is never sent back to a page or over HTTP.
-const KEY_FILE = path.join(app.getPath("userData"), "anthropic-key.bin");
+const AI_PROVIDERS = {
+  anthropic: { file: path.join(app.getPath("userData"), "anthropic-key.bin"), env: ["ANTHROPIC_API_KEY"] },
+  gemini: { file: path.join(app.getPath("userData"), "gemini-key.bin"), env: ["GEMINI_API_KEY", "GOOGLE_API_KEY"] },
+};
+const AI_PREF_FILE = path.join(app.getPath("userData"), "ai-provider.json");
 
-function storedApiKey() {
+function storedApiKey(provider) {
+  const file = AI_PROVIDERS[provider]?.file;
   try {
-    if (fs.existsSync(KEY_FILE) && safeStorage.isEncryptionAvailable()) {
-      return safeStorage.decryptString(fs.readFileSync(KEY_FILE));
+    if (file && fs.existsSync(file) && safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(fs.readFileSync(file));
     }
   } catch {
     /* unreadable: treat as absent */
   }
   return null;
+}
+
+/** The provider chosen in Settings, or null for automatic (Anthropic if it has a key, else Gemini). */
+function aiProviderPref() {
+  try {
+    const p = JSON.parse(fs.readFileSync(AI_PREF_FILE, "utf-8")).provider;
+    return Object.hasOwn(AI_PROVIDERS, p) ? p : null;
+  } catch {
+    return null;
+  }
 }
 
 async function startViewer() {
@@ -139,8 +154,13 @@ async function startViewer() {
     THINKALOUD_ENGINE: JSON.stringify([engineCmd, ...engineArgs]),
     THINKALOUD_DESKTOP: "1",
   };
-  const key = storedApiKey();
-  if (key) env.ANTHROPIC_API_KEY = key; // an ANTHROPIC_API_KEY already in the environment also works
+  // a saved key takes precedence over one already in the environment
+  for (const [name, p] of Object.entries(AI_PROVIDERS)) {
+    const key = storedApiKey(name);
+    if (key) env[p.env[0]] = key;
+  }
+  const pref = aiProviderPref();
+  if (pref) env.THINKALOUD_AI_PROVIDER = pref;
   if (!DEV) env.HF_HOME = path.join(DATA, "models");
   if (DEV) {
     const viewerDir = path.join(REPO, "viewer");
@@ -188,6 +208,16 @@ function createMainWindow() {
       e.preventDefault();
       shell.openExternal(url);
     }
+  });
+  // The review page blocks unload while edits are unsaved; Electron would otherwise cancel the
+  // close/reload silently. Ask instead.
+  win.webContents.on("will-prevent-unload", (e) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "question", buttons: ["Leave", "Stay"], defaultId: 1, cancelId: 1,
+      message: "Some review edits haven't been saved yet.",
+      detail: "Leave anyway? The unsaved edits will be lost.",
+    });
+    if (choice === 0) e.preventDefault(); // preventDefault here means "ignore the page's objection"
   });
   win.on("close", (e) => {
     if (recorder && !quitting) {
@@ -291,9 +321,12 @@ ipcMain.handle("record:pause", (_e, paused) => {
 });
 
 ipcMain.handle("settings:apiKeyStatus", () => ({
-  stored: fs.existsSync(KEY_FILE),
-  fromEnvironment: !!process.env.ANTHROPIC_API_KEY,
+  provider: aiProviderPref(),
   encryption: safeStorage.isEncryptionAvailable(),
+  keys: Object.fromEntries(Object.entries(AI_PROVIDERS).map(([name, p]) => [name, {
+    stored: fs.existsSync(p.file),
+    fromEnvironment: p.env.some((v) => !!process.env[v]),
+  }])),
 }));
 
 async function restartViewer() {
@@ -302,17 +335,29 @@ async function restartViewer() {
   if (win && !win.isDestroyed()) win.loadURL(url);
 }
 
-ipcMain.handle("settings:setApiKey", async (_e, key) => {
+ipcMain.handle("settings:setApiKey", async (_e, provider, key) => {
+  const p = Object.hasOwn(AI_PROVIDERS, provider) ? AI_PROVIDERS[provider] : null;
+  if (!p) throw new Error("unknown AI provider");
   if (typeof key !== "string" || !/^[\x21-\x7e]{20,300}$/.test(key.trim())) throw new Error("that doesn't look like an API key");
-  if (!safeStorage.isEncryptionAvailable()) throw new Error("OS encryption is unavailable; set ANTHROPIC_API_KEY in the environment instead");
-  fs.mkdirSync(path.dirname(KEY_FILE), { recursive: true });
-  fs.writeFileSync(KEY_FILE, safeStorage.encryptString(key.trim()));
+  if (!safeStorage.isEncryptionAvailable()) throw new Error(`OS encryption is unavailable; set ${p.env[0]} in the environment instead`);
+  fs.mkdirSync(path.dirname(p.file), { recursive: true });
+  fs.writeFileSync(p.file, safeStorage.encryptString(key.trim()));
   await restartViewer();
   return true;
 });
 
-ipcMain.handle("settings:clearApiKey", async () => {
-  fs.rmSync(KEY_FILE, { force: true });
+ipcMain.handle("settings:clearApiKey", async (_e, provider) => {
+  const p = Object.hasOwn(AI_PROVIDERS, provider) ? AI_PROVIDERS[provider] : null;
+  if (!p) throw new Error("unknown AI provider");
+  fs.rmSync(p.file, { force: true });
+  await restartViewer();
+  return true;
+});
+
+ipcMain.handle("settings:setAiProvider", async (_e, provider) => {
+  if (provider !== null && !Object.hasOwn(AI_PROVIDERS, provider)) throw new Error("unknown AI provider");
+  fs.mkdirSync(path.dirname(AI_PREF_FILE), { recursive: true });
+  fs.writeFileSync(AI_PREF_FILE, JSON.stringify({ provider }));
   await restartViewer();
   return true;
 });
@@ -338,11 +383,21 @@ function afterRecording(saved) {
   if (pill && !pill.isDestroyed()) pill.hide();
   restoreMain();
   send("process", { event: "progress", message: "Transcribing and checking your recording…", session_id: saved.session_id });
+  // the same lock batch jobs take (processor/thinkaloud/batch.py), so "Process selected" can't
+  // start a second processor on this recording while it is being processed here
+  const lock = path.join(saved.dir, "processing.lock");
+  try {
+    fs.writeFileSync(lock, JSON.stringify({ job_id: "desktop", at: new Date().toISOString() }), { flag: "wx" });
+  } catch { /* a fresh recording has no lock; if one exists, processing below still runs once */ }
   writeStatus(saved.dir, { state: "running", attempts: 1, error: null, started_at: new Date().toISOString() });
-  const beat = setInterval(() => writeStatus(saved.dir, {}), 2000);
+  const beat = setInterval(() => {
+    writeStatus(saved.dir, {});
+    try { const now = new Date(); fs.utimesSync(lock, now, now); } catch { /* removed */ }
+  }, 2000);
   const child = runEngine(["process", "--json", saved.dir], (ev) => send("process", { ...ev, session_id: saved.session_id }));
   child.on("close", (code) => {
     clearInterval(beat);
+    fs.rmSync(lock, { force: true });
     const tail = child.stderrTail().slice(-800);
     writeStatus(saved.dir, code === 0
       ? { state: "done", error: null, finished_at: new Date().toISOString() }

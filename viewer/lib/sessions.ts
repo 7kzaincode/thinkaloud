@@ -163,8 +163,10 @@ export async function saveReview(id: string, incoming: Trajectory):
   if (!dir) return { ok: false };
   if (!Array.isArray(incoming?.steps) || !incoming.review || typeof incoming.review !== "object") throw new Error("not a trajectory");
   const orig = path.join(/*turbopackIgnore: true*/ dir, ORIGINAL);
-  const current = await fileHash(orig);
-  const fresh = normalize(await readJson<Trajectory>(orig));
+  // hash and parse the same bytes: a reprocess between two reads would pair a hash with other content
+  const bytes = await fs.readFile(orig);
+  const current = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+  const fresh = normalize(JSON.parse(bytes.toString("utf-8")) as Trajectory);
   const sameBase = incoming.review.base_hash === current;
   const merged = rebaseReview(fresh, incoming, current, { record: !sameBase });
   await writeJsonAtomic(path.join(/*turbopackIgnore: true*/ dir, REVIEWED), merged);
@@ -188,7 +190,7 @@ export async function framePath(id: string, rel: string): Promise<string | null>
 
 export async function mediaPath(id: string, name: string): Promise<string | null> {
   const dir = await sessionDir(id);
-  if (!dir || name !== "playback.mp4") return null;
+  if (!dir || !/^playback(-[0-9a-f]{8})?\.mp4$/.test(name)) return null;
   const p = path.join(/*turbopackIgnore: true*/ dir, name);
   return (await exists(p)) ? p : null;
 }

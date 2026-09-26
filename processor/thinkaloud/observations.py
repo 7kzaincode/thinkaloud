@@ -157,11 +157,20 @@ def assign(steps: list[dict], stills: list[Capture], video: list[Capture], durat
     return list(needed.values())
 
 
-def extract_video_frames(session: Path, captures: list[Capture]) -> dict[int, str]:
-    """Decode the chosen video frames to PNG (frames/v<seq>.png). Returns seq -> file."""
+def extract_video_frames(session: Path, captures: list[Capture], size: tuple[int, int] | None = None) -> dict[int, str]:
+    """Decode the chosen video frames to PNG (frames/v<seq>.png). Returns seq -> file.
+    H.264 needs even dimensions, so the recorder crops a pixel off odd-sized screens; frames are
+    padded back to `size` (the screen size every other image has). Written atomically, so an
+    interrupted run never leaves a half-written frame behind."""
     if not captures:
         return {}
+    import os
+    import secrets
+
     import av
+    from PIL import Image
+
+    from .fsutil import replace_retry
 
     want = {c.pts_ms: c for c in captures}
     out: dict[int, str] = {}
@@ -174,7 +183,14 @@ def extract_video_frames(session: Path, captures: list[Capture]) -> dict[int, st
             if c is None:
                 continue
             rel = f"frames/v{c.seq:06d}.png"
-            frame.to_image().save(session / rel)
+            im = frame.to_image()
+            if size and size[0] and size[1] and im.size != tuple(size):
+                canvas = Image.new("RGB", tuple(size))
+                canvas.paste(im.crop((0, 0, min(im.width, size[0]), min(im.height, size[1]))), (0, 0))
+                im = canvas
+            tmp = session / f"{rel}.{os.getpid()}.{secrets.token_hex(3)}.tmp"
+            im.save(tmp, format="PNG")
+            replace_retry(tmp, session / rel)
             out[c.seq] = rel
             if len(out) == len(want):
                 break

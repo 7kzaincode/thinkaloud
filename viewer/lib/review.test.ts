@@ -234,3 +234,52 @@ test("rebase carries a cleared reasoning and a save-time rebase is not recorded"
   assert.equal(quiet.review.rebased, undefined);
   assert.equal(quiet.review.base_hash, "same");
 });
+
+test("the save payload carries every review edit through the server-side merge, and stays small", () => {
+  const t = fresh();
+  const i = t.steps.findIndex((s) => s.flags.some((f) => f.code === "missing_reasoning"));
+  R.setReasoning(t, i, "Checking the fare details");
+  R.addReviewerFlag(t, 0, "wrong field first");
+  R.dismissFlag(t, 1, 0);
+  R.setOutcome(t, "pass");
+  const payload = R.reviewPayload(t, "2026-09-26T00:00:00Z");
+  const merged = R.rebaseReview(fresh(), JSON.parse(JSON.stringify(payload)), "h", { record: false });
+  for (const k of [0, 1, i]) {
+    assert.deepEqual([merged.steps[k].reasoning, merged.steps[k].flags, merged.steps[k].dismissed_flags ?? []],
+      [t.steps[k].reasoning, t.steps[k].flags, t.steps[k].dismissed_flags ?? []]);
+  }
+  assert.equal(merged.review.outcome, "pass");
+  assert.ok(JSON.stringify(payload).length < JSON.stringify(t).length / 2);
+  // a long recording still fits under the 64 KB keepalive cap
+  const big = fresh();
+  while (big.steps.length < 120) big.steps.push(...structuredClone(fresh().steps).map((s, k) => ({ ...s, uid: `x${big.steps.length + k}` })));
+  assert.ok(JSON.stringify(R.reviewPayload(big, "t")).length < 60_000);
+});
+
+test("a dismissed privacy flag only stays dismissed for the same content after reprocessing", () => {
+  const reviewed = fresh();
+  const i = reviewed.steps.findIndex((s) => s.flags.some((f) => f.code === "possible_email"));
+  const k = reviewed.steps[i].flags.findIndex((f) => f.code === "possible_email");
+  reviewed.steps[i].flags[k].subject = "aaaa";
+  R.dismissFlag(reviewed, i, k);
+  const same = fresh();
+  same.steps[i].flags.find((f) => f.code === "possible_email")!.subject = "aaaa";
+  assert.ok(!R.rebaseReview(same, reviewed, "h").steps[i].flags.some((f) => f.code === "possible_email"));
+  const other = fresh();
+  other.steps[i].flags.find((f) => f.code === "possible_email")!.subject = "bbbb";
+  const merged = R.rebaseReview(other, reviewed, "h");
+  assert.ok(merged.steps[i].flags.some((f) => f.code === "possible_email"), "different content: reopened");
+  assert.ok(merged.review.rebased!.dropped.some((d) => d.includes("different content")));
+});
+
+test("a verdict given for earlier wording counts as undecided until confirmed", () => {
+  const t = fresh();
+  const id = R.addChecklistItem(t, "Nonstop");
+  R.setItemVerdict(t, id, "met");
+  assert.equal(computeMetrics(t).checklist.met, 1);
+  R.editChecklistItem(t, id, "Nonstop and under $400");
+  assert.deepEqual([computeMetrics(t).checklist.met, computeMetrics(t).checklist.undecided], [0, 1]);
+  R.confirmVerdict(t, id);
+  assert.equal(computeMetrics(t).checklist.met, 1);
+  assert.equal(R.verdictOutdated(t.review.checklist![0]), false);
+});

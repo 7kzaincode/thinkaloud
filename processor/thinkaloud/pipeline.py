@@ -115,7 +115,7 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
                         max_age_s=max(1.0, 3.0 / float(capture_meta.get("fps") or 4.0)))
         if needed:
             try:
-                files = extract_video_frames(session, needed)
+                files = extract_video_frames(session, needed, (screen.get("w"), screen.get("h")))
             except Exception as e:  # corrupt/missing video: those observations become missing
                 log(f"[warn] could not extract video frames: {e}")
                 files = {}
@@ -150,6 +150,7 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
         s["screenshot"] = (s["observations"]["before"] or {}).get("file")  # 0.1-compatible field
     qc.check_steps(steps, segments, pauses=pauses, legacy=legacy)
     qc.check_context(steps)
+    qc.check_narration(steps, segments)
     meta["_has_end_marker"] = any(e["type"] == "marker" and e.get("name") == "end" for e in events)
     if ocr:
         try:
@@ -158,6 +159,8 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
             log("[warn] --ocr needs pytesseract + Tesseract (use the Docker image built with WITH_OCR=1)")
     session_flags = qc.check_session(meta, steps, segments, final, legacy=legacy)
     n_redacted = qc.redact(steps) if redact else 0
+    if redact:
+        qc.redact_narration(steps, segments)
     report = qc.summarize(steps, session_flags)
     report["redacted_steps"] = n_redacted
 

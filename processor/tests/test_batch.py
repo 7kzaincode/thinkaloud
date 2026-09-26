@@ -123,3 +123,30 @@ def test_queued_recordings_keep_heart_beating(library, monkeypatch):
     job.stop.set()
     for s in job.sessions:
         assert batch.age_s(status(library, s.name)["heartbeat_at"]) < 5
+
+
+def test_only_one_job_takes_over_a_stale_lock(library):
+    """Review A new #7: two jobs that both saw the same stale lock both 'took it over'."""
+    import os, threading, time
+    session = library / "rec-a"
+    lock = session / "processing.lock"
+    wins = []
+    for _round in range(20):
+        lock.write_text("{}")
+        old = time.time() - 120
+        os.utime(lock, (old, old))
+        jobs = [batch.Job([session], library.parent / "jobs", f"j{i}", 1, 0, False, "base.en", "local") for i in range(4)]
+        barrier = threading.Barrier(len(jobs))
+        got = []
+
+        def go(j):
+            barrier.wait()
+            got.append(j.claim(session))
+
+        threads = [threading.Thread(target=go, args=(j,)) for j in jobs]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        wins.append(sum(got))
+        lock.unlink(missing_ok=True)
+    assert all(w == 1 for w in wins), wins
+    assert not list(session.glob("processing.lock.stale-*"))

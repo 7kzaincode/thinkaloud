@@ -64,11 +64,12 @@ export function runEngine(args: string[], input?: unknown, timeoutMs = 180_000):
 }
 
 /**
- * Start a long-running engine command (batch processing). Waits briefly so an immediate
- * failure (engine missing, bad arguments, no recordings found) is reported instead of
- * silently looking like a started job.
+ * Start a long-running engine command (batch processing). It counts as started once the
+ * engine prints its {"event": "started"} line; exiting before that (engine missing, bad
+ * arguments, no recordings found) is reported as a failure to start. A job that starts and
+ * then finishes quickly with a failed recording is a started job, not a start failure.
  */
-export function startEngine(args: string[], settleMs = 2500): Promise<{ pid: number } | { error: string }> {
+export function startEngine(args: string[], settleMs = 15_000): Promise<{ pid: number } | { error: string }> {
   const [cmd, base] = engineCommand();
   return new Promise((resolve) => {
     let out = "";
@@ -77,17 +78,24 @@ export function startEngine(args: string[], settleMs = 2500): Promise<{ pid: num
       windowsHide: true, detached: false, stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
     });
-    const collect = (d: Buffer) => { out = (out + d).slice(-2000); };
+    let started = false;
+    const finish = (r: { pid: number } | { error: string }) => { if (!done) { done = true; resolve(r); } };
+    const collect = (d: Buffer) => {
+      out = (out + d).slice(-4000);
+      if (!started && /"event":\s*"started"/.test(out)) {
+        started = true;
+        finish({ pid: child.pid ?? 0 });
+      }
+    };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    const finish = (r: { pid: number } | { error: string }) => { if (!done) { done = true; resolve(r); } };
     child.on("error", (e) => finish({ error: `could not start the engine: ${e.message}` }));
     child.on("exit", (code) => {
-      if (code !== 0) {
-        const last = out.trim().split(/\r?\n/).reverse().find((l) => l.includes("error")) ?? out.trim().split(/\r?\n/).pop();
-        finish({ error: `engine exited (${code}): ${last ?? ""}`.slice(0, 400) });
-      }
+      if (started) return;
+      const lines = out.trim().split(/\r?\n/);
+      const last = lines.reverse().find((l) => l.includes("error")) ?? lines[0];
+      finish(code === 0 ? { pid: child.pid ?? 0 } : { error: `engine exited (${code}): ${last ?? ""}`.slice(0, 400) });
     });
-    setTimeout(() => finish({ pid: child.pid ?? 0 }), settleMs);
+    setTimeout(() => finish({ pid: child.pid ?? 0 }), settleMs); // still running, just quiet
   });
 }

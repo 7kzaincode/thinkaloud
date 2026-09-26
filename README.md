@@ -35,7 +35,7 @@ recorder ─► sessions/<id>/ ─► processor ─► trajectory.json + playbac
 | Recorder | `recorder/` (`record.py`, `uia.py`, `winctx.py`) | Input events with window context and UI Automation targets, before/settled/end stills, 4 fps H.264 screen video, 16 kHz narration, password-field masking, pause. |
 | Processor | `processor/thinkaloud/` | Whisper transcription, event-driven step segmentation, before/after pairing, narration alignment with timing, QC, `playback.mp4`. |
 | Exports | `export.py`, `dataset.py` | Vendor-neutral dataset + Claude computer-use representation, manifest with checksums, standalone validator. |
-| AI review | `ai_review.py` | Narration checks, checklist drafts, final-screen checks via the Anthropic API. Suggestions only. |
+| AI review | `ai_review.py` | Narration checks, checklist drafts, final-screen checks via the Anthropic API or Google Gemini. Suggestions only. |
 | Batch | `batch.py`, `docker-compose.yml` | Many recordings, bounded concurrency, persistent status, retries, restart handling. Native or Docker. |
 | Viewer | `viewer/` (Next.js) | Recordings/batch page, review page, record screen, settings. |
 | Desktop app | `desktop/` (Electron), `engine/` (PyInstaller) | One Windows app wrapping all of the above; installer bundles Python. |
@@ -137,20 +137,28 @@ reviewer flag. Suggestions never change reasoning, verdicts or the outcome, and 
 a decision you made. Each suggestion stores a hash of
 what it judged; if you edit that input it is marked **stale** and can't be accepted until re-run.
 
-Configure: in the desktop app, **Settings → Anthropic API key** (stored encrypted with Windows DPAPI via
-Electron `safeStorage`, never shown again, never sent to the page); or set `ANTHROPIC_API_KEY` for the viewer
-server. Without it, everything else works and the panel says why AI is unavailable.
+Two providers are supported: **Anthropic** (default, `anthropic` SDK) and **Google Gemini** (`google-genai` SDK).
+Configure in the desktop app under **Settings → AI-assisted review**: pick the provider (or Automatic: Anthropic when
+it has a key, else Gemini) and paste a key (stored encrypted with Windows DPAPI via Electron `safeStorage`, never
+shown again, never sent to the page). For the browser version set the variables below for the viewer server.
+Without a key everything else works and the panel says why AI is unavailable. The consent line names the provider
+and model that will receive the data, and every run records both.
 
 | Variable | Default | |
 |---|---|---|
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | – | credentials (or an `ant auth login` profile) |
-| `THINKALOUD_AI_MODEL` | `claude-opus-5` | model id |
-| `THINKALOUD_AI_EFFORT` | (model default) | `low`…`max` |
-| `THINKALOUD_AI_TIMEOUT` / `THINKALOUD_AI_MAX_RETRIES` | 120 s / 2 | per request; the SDK retries 408/409/429/5xx |
-| `THINKALOUD_AI_FALLBACKS` | `default` | server-side refusal fallback (`server-side-fallback-2026-07-01`); `off` to disable |
+| `THINKALOUD_AI_PROVIDER` | automatic | `anthropic` or `gemini` |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | – | Anthropic credentials (or an `ant auth login` profile) |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | – | Gemini credentials |
+| `THINKALOUD_AI_MODEL` | `claude-opus-5` / `gemini-3.5-flash` | model id |
+| `THINKALOUD_AI_EFFORT` | (model default) | `low`…`max` (Gemini: thinking level) |
+| `THINKALOUD_AI_TIMEOUT` / `THINKALOUD_AI_MAX_RETRIES` | 120 s / 2 | per request; both SDKs retry 408/429/5xx |
+| `THINKALOUD_AI_FALLBACKS` | `default` | Anthropic only: server-side refusal fallback (`server-side-fallback-2026-07-01`); `off` to disable |
 
-Responses are JSON-schema constrained (`output_config.format`) and validated again; malformed output is retried
-once. Recording content is framed as untrusted data and the model is told not to follow instructions in it.
+Responses are JSON-schema constrained (Anthropic `output_config.format`, Gemini `response_json_schema`) and
+validated again; malformed output is retried once; provider errors (bad key, quota, overloaded, timeout, network,
+refusal, truncation) are reported by type. Recording content is framed as untrusted data and the model is told not
+to follow instructions in it. Check the provider's data-use terms before sending recordings: for example, Google
+may use content sent with free-tier (unpaid) Gemini keys to improve its products.
 
 ## Exports
 
@@ -321,8 +329,11 @@ no dropped frames; audio clock drift 22.7 ppm.
 - **Scroll amounts are wheel notches**; the Claude export rounds runs to whole notches (reported).
 - **Hover and mouse moves are not recorded.** Drags are recorded as start and end points only (no path), and
   only for a press and release of the same button with nothing in between.
-- **AI review was only tested against a fake client** (no API key in the development environment); the live
-  API path is implemented to the documented SDK interface (anthropic 1.8.0) but unverified.
+- **The Anthropic AI path was only tested against a fake client** (no Anthropic key in the development
+  environment); it is implemented to the documented SDK interface (anthropic 1.8.0). The same checks were run live
+  against Google Gemini (see docs/VALIDATION_LOG.md), which exercises the prompts, schemas, validation and UI, but
+  not the Anthropic-specific request code. Free-tier Gemini keys hit "overloaded" and quota errors often; they are
+  reported, not hidden.
 - **Non-US keyboard layouts** were covered by unit tests only (AltGr characters are recorded as typed text);
   not checked on a real non-US layout.
 - **The OCR check (`--ocr`) is untested**: Tesseract isn't installed on the development machine; the Docker

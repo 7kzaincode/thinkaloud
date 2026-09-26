@@ -98,7 +98,7 @@ def test_description_of_drags_and_deleted_typing():
     assert describe({"action": drag, "target": ok}) == "Dragged the Max price slider to (300, 40)"
     assert describe({"action": {**drag, "button": "right"}}) == "Right-dragged from (10, 20) to (300, 40)"
     typed = {"type": "type", "text": "", "backspaces": 2, "keystrokes": "ab⌫⌫"}
-    assert describe({"action": typed}) == 'Typed "ab" and deleted it again'
+    assert describe({"action": typed}) == "Typed 2 characters and deleted them"
     assert describe({"action": {"type": "key", "key": "backspace", "repeat": 3}}) == "Pressed Backspace ×3"
 
 
@@ -235,3 +235,74 @@ def test_segmentation_uses_the_recorded_double_click_box(sample):
     meta["capture"]["double_click_size_px"] = "garbage"
     (sample / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     assert process(sample, log=lambda *_: None)["source"]["segmentation"]["double_click_px"] == 2
+
+
+def _typing_step(keystrokes: str) -> dict:
+    text = []
+    for ch in keystrokes:
+        if ch == "⌫":
+            text = text[:-1]
+        else:
+            text.append(ch)
+    a = {"type": "type", "text": "".join(text)}
+    if "⌫" in keystrokes:
+        a.update(backspaces=keystrokes.count("⌫"), keystrokes=keystrokes)
+    return {"id": 0, "t_start": 1.0, "t_end": 2.0, "action": a, "flags": [], "reasoning": "", "observations": {}}
+
+
+@pytest.mark.parametrize("keystrokes,code", [
+    ("bob@example.com" + "⌫" * 15, "possible_email"),               # typed, then deleted entirely
+    ("Hunter2!x" + "⌫" * 9, "possible_secret"),                     # password typed into the wrong field
+    ("bob.smith@exampel" + "⌫" * 5 + "ample.com", "possible_email"),  # corrected mid-typing
+])
+def test_deleted_text_is_checked_and_never_kept(keystrokes, code):
+    steps = [_typing_step(keystrokes)]
+    qc.check_steps(steps, [])
+    assert code in {f["code"] for f in steps[0]["flags"]}
+    qc.redact(steps)
+    a = steps[0]["action"]
+    assert a["redacted"] and "keystrokes" not in a
+    blob = json.dumps(steps) + describe(steps[0])
+    for secret in ("bob", "example", "Hunter2", "exampel"):
+        assert secret not in blob
+
+
+def test_describing_deleted_typing_never_quotes_it():
+    s = _typing_step("abc" + "⌫" * 3)
+    assert describe(s) == "Typed 3 characters and deleted them"
+    assert qc.deleted_runs("abc⌫⌫d⌫e") == ["bc", "d"]
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows file locking")
+def test_reprocessing_while_the_replay_is_open_keeps_a_versioned_copy(sample, monkeypatch):
+    from thinkaloud import fsutil, media
+    process(sample, log=lambda *_: None)
+    monkeypatch.setattr(media, "replace_retry", lambda a, b: (_ for _ in ()).throw(PermissionError("in use")))
+    with open(sample / "playback.mp4", "rb"):                          # a review page streaming it
+        t = process(sample, log=lambda *_: None)
+    assert media.VERSIONED_RE.fullmatch(t["media"]["file"]) and (sample / t["media"]["file"]).exists()
+    assert not list(sample.glob("playback.mp4.*.tmp"))
+    monkeypatch.setattr(media, "replace_retry", fsutil.replace_retry)
+    t = process(sample, log=lambda *_: None)                           # released: back to the plain name
+    assert t["media"]["file"] == "playback.mp4" and not list(sample.glob("playback-*.mp4"))
+
+
+def test_video_fallback_frames_are_padded_to_the_screen_size(sample, tmp_path):
+    from PIL import Image
+    from thinkaloud.observations import Capture, extract_video_frames, load_video_frames
+    caps = load_video_frames(sample)[:1]
+    if not caps:
+        pytest.skip("sample has no video frames")
+    files = extract_video_frames(sample, caps, (1601, 901))            # an odd-sized screen
+    with Image.open(sample / files[caps[0].seq]) as im:
+        assert im.size == (1601, 901)
+
+
+def test_description_of_unrepresentable_drags_ambiguous_targets_and_ctrl_plus():
+    from thinkaloud.describe import key_label
+    a = {"type": "click", "x": 1, "y": 2, "button": "left", "count": 2, "release": {"x": 90, "y": 2, "t": 3.0},
+         "drag_problem": "double-click drag"}
+    assert describe({"action": a}) == "Double-clicked and dragged from (1, 2) to (90, 2) (double-click drag)"
+    ok = {"status": "ok", "role": "button", "name": "Buy", "latency_ms": 20, "ambiguous": True}
+    assert describe({"action": {"type": "click", "x": 5, "y": 6, "button": "left"}, "target": ok}) == "Clicked at (5, 6)"
+    assert key_label("ctrl++") == "Ctrl++" and key_label("ctrl+shift+t") == "Ctrl+Shift+T"

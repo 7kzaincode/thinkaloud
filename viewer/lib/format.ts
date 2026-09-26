@@ -24,12 +24,18 @@ const KEY_LABELS: Record<string, string> = {
 };
 
 export function keyLabel(combo: string): string {
-  return combo.split("+").map((p) => KEY_LABELS[p] ?? (p.length === 1 ? p.toUpperCase() : p.replace(/_/g, " "))).join("+");
+  // "ctrl++" is Ctrl and the + key, not Ctrl and two empty keys
+  let parts = combo.split("+");
+  if (combo === "+" || combo.endsWith("++")) {
+    const head = combo.slice(0, -1).replace(/\++$/, "");
+    parts = [...(head ? head.split("+") : []), "+"];
+  }
+  return parts.map((p) => KEY_LABELS[p] ?? (p.length === 1 ? p.toUpperCase() : p.replace(/_/g, " "))).join("+");
 }
 
 export function targetReliable(step: Pick<Step, "target">): boolean {
   const t = step.target;
-  return !!t && t.status === "ok" && (t.latency_ms ?? 0) <= 500;
+  return !!t && t.status === "ok" && !t.ambiguous && (t.latency_ms ?? 0) <= 500;
 }
 
 export function scrollRuns(a: Extract<Action, { type: "scroll" }>) {
@@ -46,6 +52,10 @@ export function describe(step: Pick<Step, "action" | "target" | "description">):
   const a = step.action;
   switch (a.type) {
     case "click": {
+      if (a.drag_problem && a.release) {
+        const start = (a.count ?? 1) > 1 ? "Double-clicked and dragged" : "Dragged";
+        return `${start} from (${a.x}, ${a.y}) to (${a.release.x}, ${a.release.y}) (${a.drag_problem})`;
+      }
       let verb = a.count === 2 ? "Double-clicked" : a.count === 3 ? "Triple-clicked" : "Clicked";
       if (a.button === "right") verb = "Right-clicked";
       if (a.button === "middle") verb = "Middle-clicked";
@@ -68,7 +78,11 @@ export function describe(step: Pick<Step, "action" | "target" | "description">):
     case "type":
       if (a.redacted) return "Typed text (redacted)";
       if (a.masked_chars && a.masked_chars === a.text.length) return `Typed ${a.masked_chars} characters into a password field (masked)`;
-      if (!a.text && a.keystrokes) return `Typed "${a.keystrokes.replaceAll("⌫", "")}" and deleted it again`;
+      if (!a.text && a.backspaces) {
+        // never quote deleted text: it is often a mistyped password or address
+        const n = (a.keystrokes ?? "").replaceAll("⌫", "").length || a.backspaces;
+        return `Typed ${n} character${n === 1 ? "" : "s"} and deleted ${n === 1 ? "it" : "them"}`;
+      }
       return `Typed "${a.text}"`;
     case "key":
       return `Pressed ${keyLabel(a.key)}${a.repeat && a.repeat > 1 ? ` ×${a.repeat}` : ""}`;

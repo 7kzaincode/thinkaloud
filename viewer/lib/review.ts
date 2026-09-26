@@ -242,6 +242,37 @@ export function acceptAiCheck(d: Draft, id: string): void {
   touch(d);
 }
 
+/** Same rule as the exporter (export.py dismissal_applies). */
+export function dismissalApplies(dismissed: Flag, fresh: Flag): boolean {
+  if (dismissed.code !== fresh.code) return false;
+  return fresh.severity !== "high" || dismissed.subject === fresh.subject;
+}
+
+/** The verdict still holds for the reworded item: record that it was checked against the new wording. */
+export function confirmVerdict(d: Draft, id: string): void {
+  const item = (d.review.checklist ?? []).find((x) => x.id === id);
+  if (!item?.human_verdict) return;
+  item.verdict_text = item.text;
+  touch(d);
+}
+
+/**
+ * What the review page sends when saving: only review-owned fields. The server lays them over
+ * the processor's trajectory.json (rebaseReview) and ignores everything else, so sending the
+ * whole trajectory would only make the request big (browsers cap keepalive requests at 64 KB).
+ */
+export function reviewPayload(t: Trajectory, reviewedAt: string): Trajectory {
+  return {
+    session_id: t.session_id,
+    review: { ...t.review, reviewed_at: reviewedAt },
+    steps: t.steps.map((s) => ({
+      uid: s.uid, t_start: s.t_start, action: { type: s.action.type },
+      reasoning: s.reasoning, reasoning_source: s.reasoning_source, carried_from: s.carried_from,
+      reasoning_original: s.reasoning_original, flags: s.flags, dismissed_flags: s.dismissed_flags, edited: s.edited,
+    })),
+  } as unknown as Trajectory;
+}
+
 // ---- rebasing a review onto a reprocessed trajectory -------------------------------------
 /**
  * The processor's output changed (reprocessed, new rules). Keep every human decision
@@ -268,10 +299,12 @@ export function rebaseReview(fresh: Trajectory, reviewed: Trajectory, freshHash:
       s.reasoning_source = s.reasoning.trim() ? "reviewer" : null;
       s.carried_from = null;
     }
-    // dismissals match by flag code: detail text can change between processing runs (e.g. seconds)
-    const dismissedCodes = new Set((o.dismissed_flags ?? []).filter((f) => f?.source !== "reviewer").map((f) => f.code));
-    s.dismissed_flags = s.flags.filter((f) => dismissedCodes.has(f.code));
-    s.flags = s.flags.filter((f) => !dismissedCodes.has(f.code));
+    // dismissals match by flag code (detail text can change between processing runs, e.g. seconds);
+    // privacy flags also by the content they are about
+    const qcDismissed = (o.dismissed_flags ?? []).filter((f) => f?.source !== "reviewer" && typeof f?.code === "string");
+    const closed = (f: Flag) => qcDismissed.some((d) => dismissalApplies(d, f));
+    s.dismissed_flags = s.flags.filter(closed);
+    s.flags = s.flags.filter((f) => !closed(f));
     if (s.reasoning_source === "reviewer") {
       const mr = s.flags.filter((f) => f.code === "missing_reasoning");
       s.flags = s.flags.filter((f) => f.code !== "missing_reasoning");
@@ -291,8 +324,10 @@ export function rebaseReview(fresh: Trajectory, reviewed: Trajectory, freshHash:
     if (kept.has(o)) {
       const now = out.steps.find((s) => stepKey(s) === stepKey(o) || (!o.uid && timeKey(s) === timeKey(o)));
       for (const f of o.dismissed_flags ?? []) {
-        if (f?.source !== "reviewer" && now && !now.dismissed_flags?.some((x) => x.code === f.code)) {
-          dropped.push(`step ${stepKey(o)}: dismissed "${f.code}" no longer raised`);
+        if (f?.source !== "reviewer" && now && !now.dismissed_flags?.some((x) => dismissalApplies(f, x))) {
+          dropped.push(now.flags.some((x) => x.code === f.code)
+            ? `step ${stepKey(o)}: dismissed "${f.code}" is now about different content; reopened`
+            : `step ${stepKey(o)}: dismissed "${f.code}" no longer raised`);
         }
       }
     }

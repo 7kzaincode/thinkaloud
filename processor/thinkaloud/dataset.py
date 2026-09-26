@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import re
 import sys
 import tempfile
@@ -46,6 +47,7 @@ CLAUDE_FORMAT = "thinkaloud.claude_computer_use/1.0"
 CLAUDE_TOOL_TYPE = "computer_toolset_20260801"
 ACTIONS = {"click", "drag", "type", "key", "scroll"}
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
+PNG_END = b"\x00\x00\x00\x00IEND\xaeB`\x82"   # the IEND chunk every complete PNG ends with
 BEFORE_STATUS = {"ok", "predates_previous_action", "stale", "missing", "at_action", "legacy_earlier_action"}
 AFTER_STATUS = {"settled", "unsettled", "missing"}
 TIMING = {"before_action", "during_action", "after_action", None}
@@ -96,13 +98,19 @@ def _sha(p: Path) -> str:
 
 
 def png_size(p: Path):
-    """(width, height) from the PNG header, or None if the file isn't a PNG."""
+    """(width, height) from the PNG header, or None if the file isn't a complete PNG
+    (wrong signature, or cut off before its IEND chunk)."""
     try:
         with open(p, "rb") as f:
             head = f.read(24)
+            f.seek(0, 2)
+            if f.tell() < 24 + len(PNG_END):
+                return None
+            f.seek(-len(PNG_END), 2)
+            tail = f.read()
     except OSError:
         return None
-    if len(head) < 24 or head[:8] != PNG_SIG or head[12:16] != b"IHDR":
+    if len(head) < 24 or head[:8] != PNG_SIG or head[12:16] != b"IHDR" or tail != PNG_END:
         return None
     return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
 
@@ -142,7 +150,7 @@ def validate_record(rec: dict, base: Path, listed: set[str], rec_prefix: str) ->
         elif not (base / rel).exists():
             err(f"{where}: image {img} is missing")
         elif png_size(base / rel) is None:
-            err(f"{where}: {img} is not a PNG image")
+            err(f"{where}: {img} is not a complete PNG image")
 
     steps = rec.get("steps")
     if not isinstance(steps, list):
@@ -198,6 +206,10 @@ def validate_record(rec: dict, base: Path, listed: set[str], rec_prefix: str) ->
             err(f"{w}: before is 'missing' but has an image")
         if af.get("status") == "missing" and af.get("image"):
             err(f"{w}: after is 'missing' but has an image")
+        if b.get("status") in BEFORE_STATUS - {"missing"} and not b.get("image"):
+            err(f"{w}: before is {b.get('status')!r} (captured) but has no image")
+        if af.get("status") in AFTER_STATUS - {"missing"} and not af.get("image"):
+            err(f"{w}: after is {af.get('status')!r} (captured) but has no image")
         image_ok(b.get("image"), f"{w} before")
         image_ok(af.get("image"), f"{w} after")
         if b.get("image") and b.get("status") in ("ok", "predates_previous_action", "stale"):
@@ -317,7 +329,7 @@ def validate_claude(c: dict, base: Path, listed: set[str]) -> tuple[list[str], l
             if p not in listed or not (base / p).exists():
                 err(f"{where}: image {p} missing from bundle")
             elif png_size(base / p) is None:
-                err(f"{where}: {p} is not a PNG image")
+                err(f"{where}: {p} is not a complete PNG image")
             elif list(png_size(base / p)) != list(size):
                 err(f"{where}: {p} is {png_size(base / p)}, not the declared screenshot size {size}")
         elif src.get("type") != "base64":
@@ -372,6 +384,42 @@ def validate_claude(c: dict, base: Path, listed: set[str]) -> tuple[list[str], l
     return E, W
 
 
+def cross_check(rec: dict, c: dict) -> list[str]:
+    """The Claude conversation must say the same thing as the dataset: every pointer action's
+    coordinates are the dataset's frame coordinates scaled by the declared factor."""
+    E: list[str] = []
+    rid = c.get("recording_id", "?")
+    scale = (c.get("screenshot") or {}).get("scale")
+    size = (c.get("screenshot") or {}).get("screenshot_size") or [0, 0]
+    if not _num(scale) or not (isinstance(size, list) and len(size) == 2):
+        return E
+    uses = {b.get("id"): b for m in c.get("messages") or [] if m.get("role") == "assistant"
+            for b in m.get("content") or [] if b.get("type") == "tool_use"}
+    actions = {s.get("uid"): s.get("action") or {} for s in rec.get("steps") or []}
+
+    def scaled(x, y):
+        return [min(math.floor((x + 0.5) * scale), size[0] - 1), min(math.floor((y + 0.5) * scale), size[1] - 1)]
+
+    for m in c.get("step_map") or []:
+        a = actions.get(m.get("uid"))
+        if a is None:
+            E.append(f"{rid} (claude): step_map uid {m.get('uid')!r} is not a dataset step")
+            continue
+        for tid in m.get("tool_use_ids") or []:
+            u = uses.get(tid) or {}
+            inp, name = u.get("input") or {}, u.get("name")
+            want = None
+            if a.get("type") == "click" and name in CLICKS and _num(a.get("x")) and _num(a.get("y")):
+                want = {"coordinate": scaled(a["x"], a["y"])}
+            elif a.get("type") == "drag" and name == "left_click_drag":
+                want = {"start_coordinate": scaled(a["x"], a["y"]), "coordinate": scaled(a["x2"], a["y2"])}
+            for k, v in (want or {}).items():
+                if 0 <= v[0] < size[0] and 0 <= v[1] < size[1] and inp.get(k) != v:
+                    E.append(f"{rid} (claude): {tid} {k} {inp.get(k)} does not match the dataset action "
+                             f"scaled by {scale} ({v})")
+    return E
+
+
 # ---------------------------------------------------------------- bundle
 def validate_bundle(path) -> dict:
     base = Path(path)
@@ -384,9 +432,15 @@ def validate_bundle(path) -> dict:
     if not str(man.get("format", "")).startswith("thinkaloud.bundle/1."):
         E.append(f"manifest format {man.get('format')!r} not supported")
     listed = set()
+    root = base.resolve()
     for f in man.get("files", []):
-        p = base / f["path"]
-        listed.add(f["path"])
+        rel = f.get("path")
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts \
+                or not (base / rel).resolve().is_relative_to(root):
+            E.append(f"manifest path {str(rel)[:80]!r} is outside the bundle")
+            continue
+        p = base / rel
+        listed.add(rel)
         if not p.exists():
             E.append(f"file {f['path']} listed in manifest is missing")
         elif p.stat().st_size != f.get("bytes") or _sha(p) != f.get("sha256"):
@@ -413,6 +467,8 @@ def validate_bundle(path) -> dict:
                 e, w = validate_claude(c, base, listed)
                 E += e
                 W += w
+                if r.get("dataset") and (base / r["dataset"]).exists():
+                    E += cross_check(json.loads((base / r["dataset"]).read_text(encoding="utf-8")), c)
     return {"ok": not E, "errors": E, "warnings": W, "recordings": len(man.get("recordings", []))}
 
 

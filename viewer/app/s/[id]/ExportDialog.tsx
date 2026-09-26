@@ -19,7 +19,7 @@ interface ExportResult {
 }
 
 export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
-  ids: string[]; onClose: () => void; flush?: () => Promise<void>; saveFailed?: boolean;
+  ids: string[]; onClose: () => void; flush?: () => Promise<boolean>; saveFailed?: boolean;
 }) {
   const [dataset, setDataset] = useState(true);
   const [claude, setClaude] = useState(true);
@@ -31,7 +31,13 @@ export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
     setBusy(true);
     setRes(null);
     try {
-      if (flush) await flush(); // export the edits on screen, not an older save
+      // export the edits on screen, not an older save; this also carries a review over to a
+      // recording that was reprocessed while the page was open
+      if (flush && !(await flush())) {
+        setRes({ ok: false, error: "Your latest edits could not be saved, so the export was stopped. Retry the save "
+          + "(top of the page), then export again." });
+        return;
+      }
       const r = await fetch("/api/export", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids, formats: [dataset && "dataset", claude && "claude"].filter(Boolean), include_media: media,

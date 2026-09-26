@@ -88,7 +88,7 @@ const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, 
         {hasMedia ? (
           <video
             ref={videoRef}
-            src={`/api/sessions/${encodeURIComponent(id)}/media/playback.mp4`}
+            src={`/api/sessions/${encodeURIComponent(id)}/media/${encodeURIComponent(media?.file ?? "playback.mp4")}`}
             controls
             preload="metadata"
             onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)}

@@ -14,7 +14,7 @@ const LABEL: Record<Kind, string> = {
 const SENDS: Record<Kind, string> = {
   checklist: "the task and “done when” text",
   final_screen: "the task, “done when”, your checklist and the final screenshot",
-  narration: "the task, each step's description and its reasoning text",
+  narration: "the task, “done when”, each step's description and its reasoning text",
 };
 const CHECK_TEXT = { supported: "supported by the final screen", contradicted: "contradicted by the final screen", unknown: "can't be determined from the final screen" };
 
@@ -98,13 +98,15 @@ export default function EndPanel({ id, t, edit, aiStatus }: {
         {aiStatus === null ? <div className="none-yet small">Checking configuration…</div> : !aiStatus.configured ? (
           <div className="none-yet small">
             Not configured: {aiStatus.reason}. Manual review works without it. To enable, add a key in{" "}
-            <a href="/settings">Settings</a> (desktop app) or set <code>ANTHROPIC_API_KEY</code> for the viewer server.
+            <a href="/settings">Settings</a> (desktop app) or set <code>ANTHROPIC_API_KEY</code> or <code>GEMINI_API_KEY</code> for
+            the viewer server.
           </div>
         ) : (
           <>
             <label className="consent">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-              <span>OK to send parts of this recording to Anthropic ({aiStatus.model}). Nothing is sent until you click a button below.</span>
+              <span>OK to send parts of this recording to {aiStatus.provider_name || "the AI provider"} ({aiStatus.model}). Nothing is sent
+                until you click a button below.</span>
             </label>
             {(["checklist", "final_screen", "narration"] as Kind[]).map((k) => (
               <div key={k} className="ai-run">
@@ -117,7 +119,8 @@ export default function EndPanel({ id, t, edit, aiStatus }: {
         {aiError && <div className="alert">{aiError}</div>}
         {!!t.review.ai?.runs.length && (
           <div className="small faint" style={{ marginTop: 6 }}>
-            {t.review.ai.runs.length} AI run(s); last: {t.review.ai.runs.at(-1)!.kind} · {t.review.ai.runs.at(-1)!.status} · {t.review.ai.runs.at(-1)!.model}
+            {t.review.ai.runs.length} AI run(s); last: {t.review.ai.runs.at(-1)!.kind} · {t.review.ai.runs.at(-1)!.status} ·{" "}
+            {t.review.ai.runs.at(-1)!.provider ? `${t.review.ai.runs.at(-1)!.provider} ` : ""}{t.review.ai.runs.at(-1)!.model}
             {t.review.ai.runs.at(-1)!.note ? ` · ${t.review.ai.runs.at(-1)!.note}` : ""}
           </div>
         )}
@@ -158,7 +161,10 @@ function Item({ t, it, edit }: { t: Trajectory; it: ChecklistItem; edit: (fn: (d
         <span className="small faint">{it.origin === "ai" ? "drafted by AI, accepted by you" : "added by you"}{it.human_verdict_source === "accepted_ai_suggestion" ? " · verdict adopted from an AI check" : ""}</span>
       </div>
       {R.verdictOutdated(it) && (
-        <div className="alert soft small">Your verdict was given for the earlier wording “{it.verdict_text}”. Check it still applies.</div>
+        <div className="alert soft small">
+          Your verdict was given for the earlier wording “{it.verdict_text}”; until you confirm it, it counts as undecided.{" "}
+          <button className="linkish" onClick={() => edit((d) => R.confirmVerdict(d, it.id))}>It still applies</button>
+        </div>
       )}
       {it.ai_check && (
         <div className={`ai-check ${it.ai_check.verdict}`}>

@@ -19,7 +19,11 @@ Boundaries are driven by events, not timers, except where a pause is the signal:
   * click: one step per press. Presses of the same button within the system
     double-click time and double-click rectangle merge ("count": 2 or 3), never across
     a pause. A press followed by a release elsewhere (recorder "release" event) is a
-    "drag" step with start (x, y) and end (x2, y2).
+    "drag" step with start (x, y) and end (x2, y2). A release is paired with its own
+    press whatever came in between; if other input happened during the drag, or the
+    press was the second click of a double-click, the step keeps its click type with
+    `release` (end point) and `drag_problem` set, so exports can report it instead of
+    silently presenting a click.
 
 Coordinates in actions are frame pixels (screen minus the captured monitor's
 origin); the original screen coordinates are kept as screen_x / screen_y.
@@ -96,11 +100,14 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
     steps: list[dict] = []
     cur: dict | None = None
     barrier = False  # a pause/stop happened since the last step: no double-click merging across it
+    open_press: dict[str, dict] = {}  # button -> the step its latest press belongs to
 
     def flush():
         nonlocal cur
         if cur is not None:
             a = cur["action"]
+            if a["type"] == "type" and a.get("backspaces"):
+                a["keystrokes"] = a["_keys"]          # the whole sequence, including what came after the last Backspace
             if a["type"] == "scroll":
                 a["runs"] = scroll_runs(a["events"])
                 a["net_dx"] = round(sum(ev["dx"] for ev in a["events"]), 4)
@@ -128,14 +135,21 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
             continue
 
         if kind == "release":
-            prev = steps[-1] if steps and cur is None else None
-            if prev and prev["action"]["type"] == "click" and prev["action"]["button"] == e.get("button", "left") \
-                    and prev["last_seq"] == e.get("seq", idx) - 1 and prev["action"].get("count", 1) == 1:
-                a = prev["action"]
+            press = open_press.pop(e.get("button", "left"), None)
+            if press is None or press["action"]["type"] != "click":
+                continue
+            a = press["action"]
+            nothing_between = cur is None and steps and steps[-1] is press
+            if nothing_between and a.get("count", 1) == 1:
                 a.update(type="drag", x2=e["x"] - ox, y2=e["y"] - oy, screen_x2=e["x"], screen_y2=e["y"])
-                prev["t_end"] = t
-                prev["last_seq"] = e.get("seq", idx)
-                prev["n_events"] += 1
+                press["t_end"] = t
+                press["last_seq"] = e.get("seq", idx)
+                press["n_events"] += 1
+            else:
+                # keep the step where it happened (so steps stay in time order) but never lose the drag
+                a["release"] = {"x": e["x"] - ox, "y": e["y"] - oy, "t": round(t, 4)}
+                a["drag_problem"] = ("double-click drag" if a.get("count", 1) > 1
+                                     else "other input happened during the drag")
             continue
 
         typing = cur is not None and cur["action"]["type"] == "type"
@@ -157,7 +171,6 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
             if e["key"] == "backspace":
                 a["text"] = a["text"][:-1]
                 a["backspaces"] = a.get("backspaces", 0) + 1
-                a["keystrokes"] = a["_keys"]
             else:
                 a["text"] += e["key"]
                 if e.get("masked"):
@@ -215,6 +228,7 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
                 prev["last_seq"] = e.get("seq", idx)
                 prev["n_events"] += 1
                 prev["action"]["count"] = prev["action"].get("count", 1) + 1
+                open_press[button] = prev
                 continue
             action = {"type": "click", "x": x, "y": y, "button": button, "screen_x": e["x"],
                       "screen_y": e["y"]}
@@ -224,6 +238,7 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
             if "target" in e:
                 step["target"] = e["target"]
             steps.append(step)
+            open_press[button] = step
             continue
 
     flush()

@@ -39,6 +39,7 @@ if ($LASTEXITCODE -ne 0) { throw "could not generate the UI Automation wrapper" 
   --collect-all ctranslate2 `
   --collect-all sounddevice `
   --collect-all anthropic `
+  --collect-all google.genai `
   --collect-data _sounddevice_data `
   --exclude-module tkinter `
   --exclude-module matplotlib `

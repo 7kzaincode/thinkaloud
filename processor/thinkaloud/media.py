@@ -15,6 +15,8 @@ video is stream-copied (no re-encode), audio uses FFmpeg's native "aac" encoder.
 from __future__ import annotations
 
 import os
+import re
+import secrets
 import wave
 from fractions import Fraction
 from pathlib import Path
@@ -24,6 +26,8 @@ import numpy as np
 from .fsutil import replace_retry
 
 PLAYBACK = "playback.mp4"
+# used when playback.mp4 is held open (a review page streaming it) while reprocessing
+VERSIONED_RE = re.compile(r"playback-[0-9a-f]{8}\.mp4")
 
 
 def build_playback(session: Path, meta: dict, log=print) -> dict:
@@ -48,26 +52,43 @@ def build_playback(session: Path, meta: dict, log=print) -> dict:
         info.update(status="unavailable", error="no screen video or audio was recorded")
         return info
     out = session / PLAYBACK
-    tmp = session / (PLAYBACK + ".tmp")
+    # unique per run: two processors on one recording never write the same temp file
+    tmp = session / f"{PLAYBACK}.{os.getpid()}.{secrets.token_hex(3)}.tmp"
     errors = []
+    built = None
     for copy_video in (True, False):  # stream copy first; re-encode if the input won't remux
         try:
             _write(tmp, video if has_v else None, audio if has_a else None, offset, copy_video, info)
-            replace_retry(tmp, out)  # the viewer may be streaming the old file
-            info["file"] = PLAYBACK
-            info["bytes"] = out.stat().st_size
-            info["video_mode"] = ("copy" if copy_video else "reencoded") if has_v else None
-            if errors:
-                info["note"] = f"stream copy failed ({errors[0]}); video was re-encoded"
-            return info
+            built = copy_video
+            break
         except Exception as e:
             errors.append(f"{type(e).__name__}: {e}")
-            if tmp.exists():
-                tmp.unlink()
+            tmp.unlink(missing_ok=True)
             if not has_v:
                 break
-    info.update(status="failed", error="; ".join(errors))
-    log(f"[warn] playback.mp4 not built: {info['error']}")
+    if built is None:
+        info.update(status="failed", error="; ".join(errors))
+        log(f"[warn] playback.mp4 not built: {info['error']}")
+        return info
+    name = PLAYBACK
+    try:
+        replace_retry(tmp, out)  # retries while the viewer streams the old file
+    except PermissionError:
+        # still held open (a review page is playing it): keep the new file under its own name
+        name = f"playback-{secrets.token_hex(4)}.mp4"
+        os.replace(tmp, session / name)
+        info["note"] = "playback.mp4 was in use; the new replay was saved as " + name
+    for old in session.glob("playback-*.mp4"):
+        if old.name != name and VERSIONED_RE.fullmatch(old.name):
+            try:
+                old.unlink()
+            except OSError:
+                pass  # in use; removed next time
+    info["file"] = name
+    info["bytes"] = (session / name).stat().st_size
+    info["video_mode"] = ("copy" if built else "reencoded") if has_v else None
+    if errors:
+        info["note"] = f"stream copy failed ({errors[0]}); video was re-encoded"
     return info
 
 

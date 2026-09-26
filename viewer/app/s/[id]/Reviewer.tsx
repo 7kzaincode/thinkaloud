@@ -13,7 +13,7 @@ import ExportDialog from "./ExportDialog";
 
 type Sel = number | "end";
 type SaveState = { kind: "clean" | "dirty" | "saving" | "saved" | "error"; at?: string; msg?: string };
-export type AiStatus = { configured: boolean; model: string; reason?: string } | null;
+export type AiStatus = { configured: boolean; provider?: string; provider_name?: string; model: string; reason?: string } | null;
 
 export default function Reviewer({ id, initial, hadReview, rebased }: { id: string; initial: Trajectory; hadReview: boolean; rebased: boolean }) {
   const [t, setT] = useState<Trajectory>(initial);
@@ -48,40 +48,72 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
   }, []);
 
   // ---- persistence: autosave to trajectory.reviewed.json -----------------------
-  // One save in flight at a time (a later save can never be overwritten by an earlier one),
-  // flushed before export and when leaving the page. If the recording was reprocessed while
-  // the page was open, the server rebases these edits onto the new steps and we adopt that.
+  // One save in flight at a time (a later save can never be overwritten by an earlier one).
+  // Only review-owned fields are sent (the server lays them over the processor's output
+  // anyway), which keeps the body small for long recordings. Failed saves: network and 5xx
+  // errors are retried with backoff; 4xx waits for the user (Retry). If the recording was
+  // reprocessed while the page was open, the server rebases these edits onto the new steps;
+  // the page adopts that version once no newer edits are pending.
   const latest = useRef(t);
   latest.current = t;
+  const selRef = useRef(sel);
+  selRef.current = sel;
   const dirty = useRef(false);
+  const lastOk = useRef(true);
+  const failures = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflight = useRef<Promise<void> | null>(null);
-  const adopting = useRef(false);
+  const adopted = useRef<Trajectory | null>(null);
+  const leaving = useRef(false);
 
-  const flush = useCallback(async (): Promise<void> => {
+  const flush = useCallback(async (opts: { force?: boolean; unload?: boolean } = {}): Promise<boolean> => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
     while (inflight.current) await inflight.current;
-    if (!dirty.current) return;
+    if (!dirty.current && !opts.force) return lastOk.current;
     dirty.current = false;
     const snapshot = latest.current;
+    let ok = false;
     const run = (async () => {
       setSave({ kind: "saving" });
-      const body: Trajectory = { ...snapshot, review: { ...snapshot.review, reviewed_at: new Date().toISOString() } };
+      const body = JSON.stringify(R.reviewPayload(snapshot, new Date().toISOString()));
       const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: true,
+        method: "PUT", headers: { "Content-Type": "application/json" }, body,
+        keepalive: !!opts.unload && body.length < 60_000,   // browsers cap keepalive bodies at 64 KB
       }).catch(() => null);
       if (!r?.ok) {
         dirty.current = true;
+        lastOk.current = false;
+        failures.current += 1;
+        const permanent = !!r && r.status < 500;
         setSave({ kind: "error", msg: r ? `HTTP ${r.status}` : "network error" });
+        if (!permanent && !leaving.current) {
+          retryTimer.current = setTimeout(() => void flush(), Math.min(30_000, 1000 * 2 ** failures.current));
+        }
         return;
       }
+      ok = true;
+      lastOk.current = true;
+      failures.current = 0;
       const j = await r.json().catch(() => ({}));
       const at = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      if (j.rebased && j.trajectory) {
-        adopting.current = true;
-        setT(j.trajectory);
-        const n = j.trajectory.review?.rebased?.dropped?.length ?? 0;
+      if (j.rebased && j.trajectory && !dirty.current) {
+        // adopt the rebased version; keep the same step selected (by uid, indexes can shift)
+        const cur = selRef.current;
+        const uid = typeof cur === "number" ? latest.current.steps[cur]?.uid : null;
+        const next = j.trajectory as Trajectory;
+        adopted.current = next;
+        setT(next);
+        if (uid) {
+          const i = next.steps.findIndex((s) => s.uid === uid);
+          setSel(i >= 0 ? i : Math.min(cur as number, next.steps.length - 1));
+        }
+        const n = next.review?.rebased?.dropped?.length ?? 0;
         setSave({ kind: "saved", at, msg: `recording was reprocessed; your edits were carried over${n ? ` (${n} no longer apply)` : ""}` });
+      } else if (j.rebased) {
+        dirty.current = true;   // newer edits are pending: save them too, then adopt
       } else {
-        setT((cur) => (cur.review.base_hash === j.base_hash ? cur : { ...cur, review: { ...cur.review, base_hash: j.base_hash } }));
+        setT((c) => (c.review.base_hash === j.base_hash ? c : { ...c, review: { ...c.review, base_hash: j.base_hash } }));
         setSave(dirty.current ? { kind: "dirty" } : { kind: "saved", at });
       }
     })();
@@ -91,14 +123,13 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
     } finally {
       inflight.current = null;
     }
-    if (dirty.current) await flush();
+    if (ok && dirty.current) return flush();   // edits made while this save was in flight
+    return ok;
   }, [id]);
 
   useEffect(() => {
-    if (adopting.current) {
-      adopting.current = false;
-      return;
-    }
+    if (adopted.current === t) return;          // the server's rebased copy: nothing new to save
+    adopted.current = null;
     if (!touched.current) return;
     dirty.current = true;
     setSave({ kind: "dirty" });
@@ -108,20 +139,22 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (dirty.current || inflight.current) {
-        void flush();
-        e.preventDefault();
-      }
+      if (leaving.current || !(dirty.current || inflight.current)) return;
+      void flush({ unload: true });
+      e.preventDefault();   // the desktop app shows its own "leave anyway?" dialog for this
     };
     window.addEventListener("beforeunload", warn);
     return () => {
       window.removeEventListener("beforeunload", warn);
-      if (dirty.current) void flush(); // leaving the page inside the app: save what's pending
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (dirty.current) void flush({ unload: true }); // leaving the page inside the app: save what's pending
     };
   }, [flush]);
 
   const resetReview = async () => {
     if (!confirm("Discard all review edits (reasoning, flags, checklist, AI suggestions, outcome) and reload the processor output?")) return;
+    leaving.current = true;
+    dirty.current = false;
     await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
     location.reload();
   };
@@ -216,7 +249,7 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
             {save.kind === "dirty" && "Unsaved changes"}
             {save.kind === "saving" && "Saving…"}
             {save.kind === "saved" && `Review saved${save.at ? " " + save.at : ""}${save.msg ? " · " + save.msg : ""}`}
-            {save.kind === "error" && <>Save failed ({save.msg}) · <button className="linkish" onClick={() => { dirty.current = true; void flush(); }}>retry</button></>}
+            {save.kind === "error" && <>Save failed ({save.msg}) · <button className="linkish" onClick={() => { dirty.current = true; failures.current = 0; void flush(); }}>retry</button></>}
           </span>
           <div className="seg" role="group" aria-label="Outcome (your decision)">
             {([["pass", "Task done"], ["fail", "Not done"], [null, "Undecided"]] as const).map(([v, label]) => (
@@ -282,7 +315,10 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
           </div>
         </aside>
       </div>
-      {exportOpen && <ExportDialog ids={[id]} onClose={() => setExportOpen(false)} flush={flush} saveFailed={save.kind === "error"} />}
+      {exportOpen && (
+        <ExportDialog ids={[id]} onClose={() => setExportOpen(false)} saveFailed={save.kind === "error"}
+          flush={() => flush({ force: touched.current || hadReview })} />
+      )}
     </div>
   );
 }

@@ -35,7 +35,6 @@ DOCUMENT = 50030
 VALUE_PATTERN = 10002
 MAX_TARGET_HOPS = 4     # text/image inside a button: climb at most this far
 MAX_DOCUMENT_HOPS = 40  # climbing to the page's Document element for the URL
-CONTAINERS = {50025, 50026, 50030, 50032, 50033}  # custom, group, document, window, pane
 DESCEND_BUDGET_S = 0.15
 DESCEND_MAX_DEPTH = 20
 DESCEND_MAX_NODES = 400
@@ -124,30 +123,37 @@ class UIA:
     def _descend(self, el, x: int, y: int):
         """Chromium sometimes answers a hit test with its Document root (seen right after the
         window was activated). Walk down by bounding rectangle to the deepest on-screen element
-        containing the point. Bounded by time and node count; returns None if nothing deeper."""
+        containing the point. Returns (element, ambiguous) or None. Rectangles say nothing about
+        which element is on top, so when siblings overlap at the point the result is marked
+        ambiguous (not used for descriptions). Running out of time or nodes returns None rather
+        than a partial guess."""
         deadline = time.perf_counter() + DESCEND_BUDGET_S
-        cur, nodes = el, 0
+        cur, nodes, ambiguous = el, 0, False
         for _depth in range(DESCEND_MAX_DEPTH):
-            best, best_area = None, None
+            best, best_area, hits = None, None, 0
             try:
                 child = self.walker.GetFirstChildElement(cur)
             except Exception:
-                break
-            while child and nodes < DESCEND_MAX_NODES and time.perf_counter() < deadline:
+                return None
+            while child:
+                if nodes >= DESCEND_MAX_NODES or time.perf_counter() >= deadline:
+                    return None
                 nodes += 1
                 try:
                     r = child.CurrentBoundingRectangle
                     if not child.CurrentIsOffscreen and r.left <= x < r.right and r.top <= y < r.bottom:
+                        hits += 1
                         area = (r.right - r.left) * (r.bottom - r.top)
                         if best is None or area <= best_area:
                             best, best_area = child, area
                     child = self.walker.GetNextSiblingElement(child)
                 except Exception:
-                    break
+                    return None
             if best is None:
                 break
+            ambiguous = ambiguous or hits > 1
             cur = best
-        return cur if cur is not el else None
+        return (cur, ambiguous) if cur is not el else None
 
     def at_point(self, x: int, y: int) -> dict:
         el = self.auto.ElementFromPoint(self.mod.tagPOINT(int(x), int(y)))
@@ -155,10 +161,12 @@ class UIA:
             return {"status": "not_found"}
         hit = self._props(el)
         method = "point"
-        if hit["control_type_id"] in CONTAINERS:
+        ambiguous = False
+        if hit["control_type_id"] == DOCUMENT:   # only the Chromium case; other containers are real answers
             deeper = self._descend(el, int(x), int(y))
             if deeper is not None:
-                el, hit, method = deeper, self._props(deeper), "descend"
+                el, ambiguous = deeper
+                hit, method = self._props(el), "descend"
         target_el, target = el, hit
         cur, hops = el, 0
         while hit["control_type_id"] not in INTERACTIVE and hops < MAX_TARGET_HOPS:
@@ -173,6 +181,8 @@ class UIA:
         url, url_status = self._document_url(target_el)
         out = {"status": "ok", **target, "hit": hit if target_el is not el else None,
                "hit_method": method, "url_status": url_status}
+        if ambiguous:
+            out["ambiguous"] = True
         if url:
             out["url"] = url
         return out
@@ -187,9 +197,12 @@ class UIA:
 class UIAWorker(threading.Thread):
     """Answers lookups in order. `submit` never blocks; `result` waits (bounded)."""
 
-    def __init__(self, clock, timeout_ms: int = 600, max_queue_age_s: float = 0.35):
+    def __init__(self, clock, timeout_ms: int = 600, max_queue_age_s: float = 0.35, focus_epoch=None):
         super().__init__(daemon=True, name="uia")
         self.clock = clock
+        # focus_epoch() counts inputs that can move keyboard focus (clicks, Tab, Enter, shortcuts).
+        # A focus answer is valid however late it is computed, as long as the epoch hasn't changed.
+        self.focus_epoch = focus_epoch
         self.timeout_ms = timeout_ms
         self.max_queue_age_s = max_queue_age_s
         self.q: queue.Queue = queue.Queue()
@@ -211,15 +224,20 @@ class UIAWorker(threading.Thread):
             item = self.q.get()
             if item is None:
                 return
-            rid, kind, t_event, args = item
+            rid, kind, t_event, args, epoch = item
             started = self.clock()
+            focus_checked = kind == "focus" and epoch is not None and self.focus_epoch is not None
             if uia is None:
                 res = {"status": "unavailable", "error": self.error}
-            elif started - t_event > self.max_queue_age_s:
+            elif focus_checked and self.focus_epoch() != epoch:
+                res = {"status": "focus_moved"}   # focus may be somewhere else now: the answer would be wrong
+            elif not focus_checked and started - t_event > self.max_queue_age_s:
                 res = {"status": "skipped_stale"}
             else:
                 try:
                     res = uia.at_point(*args) if kind == "point" else uia.focused()
+                    if focus_checked and res.get("status") == "ok" and self.focus_epoch() != epoch:
+                        res = {"status": "focus_moved"}
                 except Exception as e:
                     msg = str(e)
                     status = "timeout" if ("timeout" in msg.lower() or "0x80131505" in msg) else "error"
@@ -236,11 +254,11 @@ class UIAWorker(threading.Thread):
     _next = 0
     _lock = threading.Lock()
 
-    def submit(self, kind: str, t_event: float, *args) -> int:
+    def submit(self, kind: str, t_event: float, *args, epoch: int | None = None) -> int:
         with self._lock:
             UIAWorker._next += 1
             rid = UIAWorker._next
-        self.q.put((rid, kind, t_event, args))
+        self.q.put((rid, kind, t_event, args, epoch))
         return rid
 
     def result(self, rid: int, timeout_s: float = 1.5) -> dict:

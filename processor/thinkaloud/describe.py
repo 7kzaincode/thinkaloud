@@ -17,12 +17,18 @@ KEY_LABELS = {"enter": "Enter", "tab": "Tab", "esc": "Esc", "backspace": "Backsp
 
 
 def target_reliable(target: dict | None) -> bool:
-    return bool(target and target.get("status") == "ok"
+    """Looked up in time, and not a guess between overlapping elements (see recorder/uia.py _descend)."""
+    return bool(target and target.get("status") == "ok" and not target.get("ambiguous")
                 and (target.get("latency_ms") or 0) <= TARGET_MAX_LATENCY_MS)
 
 
 def key_label(combo: str) -> str:
-    parts = combo.split("+")
+    # "ctrl++" is Ctrl and the + key, not Ctrl and two empty keys
+    if combo.endswith("+") and (combo == "+" or combo.endswith("++")):
+        head = combo[:-1].rstrip("+")
+        parts = (head.split("+") if head else []) + ["+"]
+    else:
+        parts = combo.split("+")
     return "+".join(KEY_LABELS.get(p, p.upper() if len(p) == 1 else p.replace("_", " ").title())
                     for p in parts)
 
@@ -30,6 +36,10 @@ def key_label(combo: str) -> str:
 def describe(step: dict) -> str:
     a = step["action"]
     t = a["type"]
+    if t == "click" and a.get("drag_problem") and a.get("release"):
+        r = a["release"]
+        start = "Double-clicked and dragged" if a.get("count", 1) > 1 else "Dragged"
+        return f"{start} from ({a['x']}, {a['y']}) to ({r['x']}, {r['y']}) ({a['drag_problem']})"
     if t == "click":
         verb = {2: "Double-clicked", 3: "Triple-clicked"}.get(a.get("count", 1), "Clicked")
         if a.get("button") == "right":
@@ -59,8 +69,10 @@ def describe(step: dict) -> str:
             return "Typed text (redacted)"
         if a.get("masked_chars") and a["masked_chars"] == len(a["text"]):
             return f"Typed {a['masked_chars']} characters into a password field (masked)"
-        if not a["text"] and a.get("keystrokes"):
-            return f'Typed "{a["keystrokes"].replace("⌫", "")}" and deleted it again'
+        if not a["text"] and a.get("backspaces"):
+            # never quote deleted text: it is often a mistyped password or address
+            n = len((a.get("keystrokes") or "").replace("⌫", "")) or a["backspaces"]
+            return f"Typed {n} character{'s' if n != 1 else ''} and deleted {'them' if n != 1 else 'it'}"
         return f'Typed "{a["text"]}"'
     if t == "key":
         n = a.get("repeat", 1)
