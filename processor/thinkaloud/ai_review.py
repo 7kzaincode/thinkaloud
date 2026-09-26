@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 import json
 import os
 import secrets
@@ -176,6 +177,11 @@ def build_request(session: Path, kind: str, t: dict) -> dict:
         final = (t.get("final_observation") or {}).get("file") or t.get("final_screenshot")
         if not final or not (Path(session) / final).exists():
             raise ReviewError("missing_image", "the recording has no final screenshot to check against")
+        # the trajectory comes from the browser: only ever read a frame inside this recording
+        base = Path(session).resolve()
+        img = (base / final).resolve()
+        if not (re.fullmatch(r"frames/[\w.-]+\.png", str(final)) and img.parent == base / "frames"):
+            raise ReviewError("bad_request", "the final screenshot path is not a frame of this recording")
         for it in items:
             it["input_hash"] = final_check_input(it["text"], criteria, final)
         return {"kind": kind, "task": task, "criteria": criteria, "items": items, "image_path": str(Path(session) / final)}

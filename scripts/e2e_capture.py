@@ -55,6 +55,10 @@ def main() -> int:
     ap.add_argument("--report", type=Path, default=ROOT / "docs" / "evidence" / "e2e_report.json")
     ap.add_argument("--keep", action="store_true",
                     help="keep the recorded session (it captures the whole monitor, not just the test window)")
+    ap.add_argument("--inputs-only", action="store_true",
+                    help="only perform the guarded input script on an already running test bench (--layout); "
+                         "used by scripts/app_journey.mjs while the desktop app records")
+    ap.add_argument("--layout", type=Path, help="layout.json of a running test bench (with --inputs-only)")
     a = ap.parse_args()
 
     from pynput.keyboard import Controller as K, Key
@@ -63,10 +67,13 @@ def main() -> int:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # same pixel space as the recorder
 
     a.out.mkdir(parents=True, exist_ok=True)
-    layout_path = a.out / "layout.json"
-    layout_path.unlink(missing_ok=True)
-    tb = subprocess.Popen([str(ELECTRON), str(ROOT / "scripts" / "testbench")],
-                          env={**os.environ, "THINKALOUD_TB_LAYOUT": str(layout_path)})
+    if a.inputs_only:
+        layout_path, tb = a.layout, None
+    else:
+        layout_path = a.out / "layout.json"
+        layout_path.unlink(missing_ok=True)
+        tb = subprocess.Popen([str(ELECTRON), str(ROOT / "scripts" / "testbench")],
+                              env={**os.environ, "THINKALOUD_TB_LAYOUT": str(layout_path)})
     for _ in range(100):
         if layout_path.exists():
             break
@@ -99,23 +106,9 @@ def main() -> int:
         time.sleep(0.8)
         guard(blank)
     except NotInFront as e:
-        tb.terminate()
+        if tb:
+            tb.terminate()
         raise SystemExit(f"ABORTED before any recorded input: {e}")
-
-    cmd = [sys.executable, str(ROOT / "engine" / "engine.py"), "record", "--json", "--countdown", "0",
-           "--task", "Add headphones to the cart and open page 2", "--criteria", "Page 2 is open",
-           "--out", str(a.out)]
-    if a.device is not None:
-        cmd += ["--device", str(a.device)]
-    rec = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
-    session = None
-    while session is None:
-        line = rec.stdout.readline()
-        if not line:
-            raise SystemExit("recorder exited before starting")
-        ev = json.loads(line)
-        if ev.get("event") == "started":
-            session = Path(ev["dir"])
 
     def click(name, settle=1.0):
         p = center(rects[name])
@@ -136,7 +129,7 @@ def main() -> int:
         guard(m.position)
         m.scroll(0, dy)
 
-    try:
+    def drive():
         time.sleep(1.5)
         click("cart", 1.5)
         click("search", 0.4)
@@ -169,6 +162,33 @@ def main() -> int:
         for _ in range(n_flash):
             click("flash", a.flash_interval - 0.25)
         click("page2", 2.5)
+
+    if a.inputs_only:
+        try:
+            drive()
+        except NotInFront as e:
+            print(f"ABORTED; no further input sent: {e}")
+            return 2
+        print("inputs done")
+        return 0
+
+    cmd = [sys.executable, str(ROOT / "engine" / "engine.py"), "record", "--json", "--countdown", "0",
+           "--task", "Add headphones to the cart and open page 2", "--criteria", "Page 2 is open",
+           "--out", str(a.out)]
+    if a.device is not None:
+        cmd += ["--device", str(a.device)]
+    rec = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    session = None
+    while session is None:
+        line = rec.stdout.readline()
+        if not line:
+            raise SystemExit("recorder exited before starting")
+        ev = json.loads(line)
+        if ev.get("event") == "started":
+            session = Path(ev["dir"])
+
+    try:
+        drive()
     except NotInFront as e:
         rec.stdin.write(json.dumps({"cmd": "stop"}) + "\n")
         rec.stdin.flush()

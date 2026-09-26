@@ -164,3 +164,16 @@ def test_image_block_respects_limits(tmp_path):
     im = Image.open(io.BytesIO(base64.b64decode(blk["source"]["data"])))
     assert max(im.size) <= ar.MAX_LONG_EDGE
     assert -(-im.width // 28) * -(-im.height // 28) <= ar.MAX_VISUAL_TOKENS
+
+
+def test_final_screenshot_path_cannot_escape_the_recording(traj, tmp_path):
+    s, t = traj
+    secret = s.parent / "secret.png"
+    secret.write_bytes((s / t["final_observation"]["file"]).read_bytes())
+    t["review"]["checklist"] = [{"id": "c1", "text": "x"}]
+    for bad in ("../secret.png", "frames/../../secret.png", str(secret)):
+        t["final_observation"] = {"status": "ok", "file": bad}
+        fake = FakeClient({"checks": []})
+        out = ar.run_review(s, "final_screen", t, client=fake)
+        assert out["error_type"] in ("bad_request", "missing_image"), bad
+        assert fake.calls == []                                   # nothing was sent
