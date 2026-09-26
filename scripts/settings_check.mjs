@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const APP = path.join(ROOT, "desktop", "dist", "win-unpacked", "thinkaloud.exe");
+const APP = process.env.THINKALOUD_APP || path.join(ROOT, "desktop", "dist", "win-unpacked", "thinkaloud.exe");
 const PORT = 9338;
 const DUMMY = "test-key-not-real-0000000000000000";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

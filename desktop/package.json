@@ -11,7 +11,8 @@
     "build:viewer": "npm --prefix ../viewer run build",
     "build:engine": "powershell -ExecutionPolicy Bypass -File ../engine/build.ps1",
     "dist": "npm run build:viewer && npm run build:engine && electron-builder --win",
-    "pack": "electron-builder --win --dir"
+    "pack": "electron-builder --win --dir",
+    "dist:portable": "npm run build:viewer && npm run build:engine && electron-builder --win portable"
   },
   "devDependencies": {
     "electron": "44.4.5",
@@ -66,6 +67,12 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
@@ -77,6 +84,9 @@
       "createDesktopShortcut": true,
       "shortcutName": "thinkaloud"
     },
-    "afterPack": "./afterPack.js"
+    "afterPack": "./afterPack.js",
+    "portable": {
+      "artifactName": "thinkaloud-portable-${version}.exe"
+    }
   }
 }
