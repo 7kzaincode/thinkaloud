@@ -76,6 +76,12 @@ Pre-existing failures: none.
 | C39 | Docker batch after the round-2 fixes | `docker compose build`; batch on 3 synthetic copies, the 0.1 fixture and a corrupt recording, run twice | 4 done / 1 failed (isolated, retried) in 10 s; second run 3 s, all up-to-date recordings skipped; no locks or temp files left |
 | C40 | Settings in the packaged app (AI provider and key storage) | `node scripts/settings_check.mjs` (throwaway profile, dummy key through the desktop bridge; nothing sent to a provider) | 9/9: provider choices and data-use note shown; key stored encrypted (file is not plain text), status reports booleans only; Automatic picks Gemini when only a Gemini key exists; the key never reaches the page; explicit Anthropic without its key is not configured; removing the key turns AI off. Report: `docs/evidence/settings_check_report.json` |
 | C41 | Installer | `electron-builder --win` | `desktop/dist/thinkaloud Setup 0.1.0.exe`, 210 MB, unsigned |
+| C42 | Unit suites on the final code | pytest (processor, recorder), `npm test`, `npx tsc --noEmit` | processor 189, recorder 23 (incl. a real UI Automation test), viewer 21 passed; typecheck clean; no warnings with `-W default` |
+| C43 | Rebase record survives a follow-up save (F2) | standalone build on 127.0.0.1:3312; save with a stale base, then `?adopt=1` save with the new base | `rebase_history` length 1 and the dropped edit ("step s000001: edits no longer match a step") kept on disk after the second save |
+| C44 | Two UI Automation clients in one process (F7) | real COM, 3 concurrent and 3 sequential starts | concurrent: the second client fails 3/3 (`COMError`); sequential: both available 3/3 → pool starts them in sequence (`test_both_real_uia_clients_start`) |
+| C45 | Final build: settings, frozen engine, Docker | `settings_check.mjs`; frozen `export --allow-privacy-for` + `validate`; Docker batch twice | settings 9/9; bundle validates, no `subject` key anywhere in it; Docker 4 done / 1 failed in 11 s, re-run 3 s |
+| C46 | Installer on the final code | `electron-builder --win` | `thinkaloud Setup 0.1.0.exe`, 210 MB |
+| C47 | Native journey and E2E on the final code | `node scripts/app_journey.mjs`, `python scripts/e2e_capture.py` | **not run**. The first attempts on 4a356cc were stopped by the input guard before any input was injected, because the owner was using the computer (Discord, Explorer in front); the journey had already started recording, and its test recording (about 30 s of the screen) was deleted at the end as always. Both scripts now refuse to start unless the machine has been idle for 120 s (`--require-idle`, `THINKALOUD_REQUIRE_IDLE`); the machine was not idle during a 25-minute wait. The last native runs passed on 0d74c8b (E2E 27/27, journey 17/17: C37, C38; the committed reports are from those runs). Recorder changes since then (UI Automation answers only add masking, dedicated focus worker, sequential client start, pill warning) are covered by unit tests with fake and real UI Automation (C42, C44) |
 
 ## Review findings
 
@@ -219,3 +225,5 @@ system double-click time but not the box size (A17).
 - Acoustic end-to-end audio latency (mic hears a beep at a known time): no loopback/acoustic path on this machine (C22).
 - OCR of screenshots (`--ocr`): Tesseract is not installed on this machine; untested.
 - AltGr / non-US keyboard layouts: unit-tested with synthetic key events only.
+- Native E2E and packaged-app journey on the final recorder code (C47): the machine was in use; last native runs
+  passed on 0d74c8b.
