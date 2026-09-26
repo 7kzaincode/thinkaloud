@@ -1,0 +1,44 @@
+[
+  {
+    "id": 0,
+    "t_start": 0.6,
+    "t_end": 3.6,
+    "text": "First I'm signing in, because this site only shows member fares when you're logged in."
+  },
+  {
+    "id": 1,
+    "t_start": 10.1,
+    "t_end": 13.2,
+    "text": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson."
+  },
+  {
+    "id": 2,
+    "t_start": 16.4,
+    "t_end": 17.1,
+    "text": "Then the date, the seventeenth."
+  },
+  {
+    "id": 3,
+    "t_start": 19.6,
+    "t_end": 23.9,
+    "text": "Results default to recommended, which is mostly sponsored placements. So I sort by price."
+  },
+  {
+    "id": 4,
+    "t_start": 29.6,
+    "t_end": 34.8,
+    "text": "The cheapest one has a stop in Chicago. The task says direct, so I filter to nonstop instead of just grabbing the top result."
+  },
+  {
+    "id": 5,
+    "t_start": 35.9,
+    "t_end": 38.0,
+    "text": "Air Canada, three twelve, nonstop. That's the one."
+  },
+  {
+    "id": 6,
+    "t_start": 66.4,
+    "t_end": 70.2,
+    "text": "Okay, it's in checkout at three hundred twelve, nonstop, on the seventeenth. That matches what I was asked for."
+  }
+]

@@ -1,0 +1,424 @@
+{
+  "schema_version": "0.1",
+  "session_id": "synthetic-flight",
+  "task": "Find and select the cheapest nonstop flight from Toronto (YYZ) to San Francisco (SFO) on Oct 17.",
+  "success_criteria": "Checkout page shows the cheapest nonstop YYZ-SFO flight on Oct 17.",
+  "recorded_at": "2026-09-26T10:00:00-04:00",
+  "duration_s": 71.5,
+  "screen": {
+    "w": 1600,
+    "h": 900
+  },
+  "final_screenshot": "frames/000071500.png",
+  "steps": [
+    {
+      "id": 0,
+      "t_start": 4.1,
+      "t_end": 4.1,
+      "action": {
+        "type": "click",
+        "x": 290,
+        "y": 293,
+        "button": "left"
+      },
+      "screenshot": "frames/000004100.png",
+      "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        0
+      ],
+      "flags": []
+    },
+    {
+      "id": 1,
+      "t_start": 4.6,
+      "t_end": 6.4,
+      "action": {
+        "type": "type",
+        "text": "[REDACTED]",
+        "redacted": true
+      },
+      "screenshot": "frames/000004100.png",
+      "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
+      "reasoning_source": "carried",
+      "carried_from": 0,
+      "transcript_ids": [],
+      "flags": [
+        {
+          "code": "possible_email",
+          "severity": "high",
+          "detail": "Typed text contains an email address.",
+          "source": "qc"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "t_start": 7.4,
+      "t_end": 7.4,
+      "action": {
+        "type": "click",
+        "x": 290,
+        "y": 393,
+        "button": "left"
+      },
+      "screenshot": "frames/000007400.png",
+      "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
+      "reasoning_source": "carried",
+      "carried_from": 0,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 3,
+      "t_start": 7.8,
+      "t_end": 8.79,
+      "action": {
+        "type": "type",
+        "text": "[REDACTED]",
+        "redacted": true
+      },
+      "screenshot": "frames/000007400.png",
+      "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
+      "reasoning_source": "carried",
+      "carried_from": 0,
+      "transcript_ids": [],
+      "flags": [
+        {
+          "code": "possible_secret",
+          "severity": "high",
+          "detail": "Typed text may be a password: single token mixing letters, digits and symbols.",
+          "source": "qc"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "t_start": 9.6,
+      "t_end": 9.6,
+      "action": {
+        "type": "key",
+        "key": "enter"
+      },
+      "screenshot": "frames/000009600.png",
+      "reasoning": "First I'm signing in, because this site only shows member fares when you're logged in.",
+      "reasoning_source": "carried",
+      "carried_from": 0,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 5,
+      "t_start": 13.6,
+      "t_end": 13.6,
+      "action": {
+        "type": "click",
+        "x": 230,
+        "y": 293,
+        "button": "left"
+      },
+      "screenshot": "frames/000013600.png",
+      "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        1
+      ],
+      "flags": []
+    },
+    {
+      "id": 6,
+      "t_start": 14.0,
+      "t_end": 14.18,
+      "action": {
+        "type": "type",
+        "text": "YYZ"
+      },
+      "screenshot": "frames/000013600.png",
+      "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
+      "reasoning_source": "carried",
+      "carried_from": 5,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 7,
+      "t_start": 15.4,
+      "t_end": 15.4,
+      "action": {
+        "type": "click",
+        "x": 550,
+        "y": 293,
+        "button": "left"
+      },
+      "screenshot": "frames/000015400.png",
+      "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
+      "reasoning_source": "carried",
+      "carried_from": 5,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 8,
+      "t_start": 15.8,
+      "t_end": 15.98,
+      "action": {
+        "type": "type",
+        "text": "SFO"
+      },
+      "screenshot": "frames/000015400.png",
+      "reasoning": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
+      "reasoning_source": "carried",
+      "carried_from": 5,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 9,
+      "t_start": 17.3,
+      "t_end": 17.3,
+      "action": {
+        "type": "click",
+        "x": 850,
+        "y": 293,
+        "button": "left"
+      },
+      "screenshot": "frames/000017300.png",
+      "reasoning": "Then the date, the seventeenth.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        2
+      ],
+      "flags": []
+    },
+    {
+      "id": 10,
+      "t_start": 19.2,
+      "t_end": 19.2,
+      "action": {
+        "type": "click",
+        "x": 1080,
+        "y": 293,
+        "button": "left"
+      },
+      "screenshot": "frames/000019200.png",
+      "reasoning": "Then the date, the seventeenth.",
+      "reasoning_source": "carried",
+      "carried_from": 9,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 11,
+      "t_start": 24.9,
+      "t_end": 24.9,
+      "action": {
+        "type": "click",
+        "x": 1350,
+        "y": 192,
+        "button": "left"
+      },
+      "screenshot": "frames/000024900.png",
+      "reasoning": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        3
+      ],
+      "flags": []
+    },
+    {
+      "id": 12,
+      "t_start": 26.1,
+      "t_end": 26.1,
+      "action": {
+        "type": "click",
+        "x": 1300,
+        "y": 283,
+        "button": "left"
+      },
+      "screenshot": "frames/000026100.png",
+      "reasoning": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
+      "reasoning_source": "carried",
+      "carried_from": 11,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 13,
+      "t_start": 27.4,
+      "t_end": 28.5,
+      "action": {
+        "type": "scroll",
+        "x": 800,
+        "y": 600,
+        "dx": 0,
+        "dy": -3
+      },
+      "screenshot": "frames/000026100.png",
+      "reasoning": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
+      "reasoning_source": "carried",
+      "carried_from": 11,
+      "transcript_ids": [],
+      "flags": []
+    },
+    {
+      "id": 14,
+      "t_start": 35.2,
+      "t_end": 35.2,
+      "action": {
+        "type": "click",
+        "x": 200,
+        "y": 270,
+        "button": "left"
+      },
+      "screenshot": "frames/000035200.png",
+      "reasoning": "The cheapest one has a stop in Chicago. The task says direct, so I filter to nonstop instead of just grabbing the top result.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        4
+      ],
+      "flags": []
+    },
+    {
+      "id": 15,
+      "t_start": 38.4,
+      "t_end": 38.4,
+      "action": {
+        "type": "click",
+        "x": 700,
+        "y": 368,
+        "button": "left"
+      },
+      "screenshot": "frames/000038400.png",
+      "reasoning": "Air Canada, three twelve, nonstop. That's the one.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        5
+      ],
+      "flags": []
+    },
+    {
+      "id": 16,
+      "t_start": 62.0,
+      "t_end": 62.0,
+      "action": {
+        "type": "click",
+        "x": 1320,
+        "y": 368,
+        "button": "left"
+      },
+      "screenshot": "frames/000062000.png",
+      "reasoning": "",
+      "reasoning_source": null,
+      "carried_from": null,
+      "transcript_ids": [],
+      "flags": [
+        {
+          "code": "missing_reasoning",
+          "severity": "warn",
+          "detail": "No narration aligned to this step.",
+          "source": "qc"
+        },
+        {
+          "code": "idle_gap",
+          "severity": "warn",
+          "detail": "23.6s with no actions before this step (silent)",
+          "source": "qc"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "t_start": 65.6,
+      "t_end": 65.6,
+      "action": {
+        "type": "click",
+        "x": 1100,
+        "y": 368,
+        "button": "left"
+      },
+      "screenshot": "frames/000065600.png",
+      "reasoning": "Okay, it's in checkout at three hundred twelve, nonstop, on the seventeenth. That matches what I was asked for.",
+      "reasoning_source": "narrated",
+      "carried_from": null,
+      "transcript_ids": [
+        6
+      ],
+      "flags": []
+    }
+  ],
+  "transcript": [
+    {
+      "id": 0,
+      "t_start": 0.6,
+      "t_end": 3.6,
+      "text": "First I'm signing in, because this site only shows member fares when you're logged in.",
+      "step_id": 0
+    },
+    {
+      "id": 1,
+      "t_start": 10.1,
+      "t_end": 13.2,
+      "text": "Now the search. I use airport codes, not city names, since Toronto has two airports and I want Pearson.",
+      "step_id": 5
+    },
+    {
+      "id": 2,
+      "t_start": 16.4,
+      "t_end": 17.1,
+      "text": "Then the date, the seventeenth.",
+      "step_id": 9
+    },
+    {
+      "id": 3,
+      "t_start": 19.6,
+      "t_end": 23.9,
+      "text": "Results default to recommended, which is mostly sponsored placements. So I sort by price.",
+      "step_id": 11
+    },
+    {
+      "id": 4,
+      "t_start": 29.6,
+      "t_end": 34.8,
+      "text": "The cheapest one has a stop in Chicago. The task says direct, so I filter to nonstop instead of just grabbing the top result.",
+      "step_id": 14
+    },
+    {
+      "id": 5,
+      "t_start": 35.9,
+      "t_end": 38.0,
+      "text": "Air Canada, three twelve, nonstop. That's the one.",
+      "step_id": 15
+    },
+    {
+      "id": 6,
+      "t_start": 66.4,
+      "t_end": 70.2,
+      "text": "Okay, it's in checkout at three hundred twelve, nonstop, on the seventeenth. That matches what I was asked for.",
+      "step_id": 17
+    }
+  ],
+  "session_flags": [],
+  "qc": {
+    "summary": "18 steps, 1 missing reasoning, 1 idle gap, 1 possible secret, 1 typed email",
+    "counts": {
+      "possible_email": 1,
+      "possible_secret": 1,
+      "missing_reasoning": 1,
+      "idle_gap": 1
+    },
+    "high_severity": 2,
+    "redacted_steps": 2
+  },
+  "review": {
+    "outcome": null,
+    "reviewer": null,
+    "notes": "",
+    "edited": false
+  }
+}

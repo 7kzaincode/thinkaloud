@@ -1,0 +1,24 @@
+# Real recordings never get committed: audio, screenshots, keystrokes, transcripts.
+sessions/
+*.wav
+**/frames/
+!samples/synthetic-flight/frames/
+events.jsonl
+!samples/synthetic-flight/events.jsonl
+trajectory.reviewed.json
+*.trajectory.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+node_modules/
+viewer/.next/
+viewer/next-env.d.ts
+viewer/tsconfig.tsbuildinfo
+
+.claude/
+.env*

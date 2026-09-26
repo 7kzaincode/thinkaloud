@@ -1,0 +1,4 @@
+-r requirements.txt
+pillow==12.3.0
+pytest==9.1.1
+pytesseract==0.3.13
