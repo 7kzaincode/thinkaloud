@@ -74,7 +74,7 @@ Or the parts separately:
 ```bash
 .venv/Scripts/python recorder/record.py --task "..." --criteria "..."   # F8 pause, F9 stop; --fps, --settle, --no-uia, --no-video
 cd processor && ../.venv/Scripts/python -m thinkaloud ../sessions        # process everything new
-cd viewer && npm run dev                                                 # http://localhost:3217 (reads ../sessions and ../samples)
+cd viewer && npm run dev                                                 # http://127.0.0.1:3217 (reads ../sessions and ../samples)
 ```
 
 ### Batch processing in Docker
@@ -112,11 +112,16 @@ On a **review page**:
 - **What they did** describes the action ("Clicked the Add to Cart button") with the raw coordinates and
   UI Automation metadata one click away. **Why** is the reasoning: from narration (with chips saying whether
   it was said before, during or after the action), carried from an earlier step, or written by you. Your
-  edits keep the original and can be reverted.
-- **End state**: a checklist derived from "done when", your verdict per item, notes, and the outcome.
-- Edits autosave to `trajectory.reviewed.json`; the processor's `trajectory.json` is never modified by review.
-  If a recording is reprocessed, your review is carried over to the new steps (matching step ids, or start
-  time + action type for older recordings) and anything that no longer applies is listed.
+  edits (including clearing it) keep the original and can be reverted.
+- **End state**: a checklist derived from "done when", your verdict per item, notes, and the outcome. If you
+  reword an item after deciding it, the page says the verdict was given for the earlier wording.
+- Edits autosave to `trajectory.reviewed.json` (one save in flight at a time; pending edits are saved before an
+  export and when leaving the page, and the browser warns if a save is still pending). The processor's
+  `trajectory.json` is never modified by review, and the server merges only review-owned fields (reasoning,
+  flags, dismissals, the review block) onto it, so a crafted review file can't change actions or image paths.
+  If a recording is reprocessed, even while the page is open, your review is carried over to the new steps
+  (matching step ids, or start time + action type for older recordings; dismissals match by flag code) and
+  anything that no longer applies is listed and kept in `rebase_history`.
 
 ### AI-assisted review (optional)
 
@@ -126,8 +131,10 @@ Buttons on the End state panel: **Draft checklist from "done when"**, **Check fi
 each button says exactly what it sends.
 
 Every result is a suggestion: drafts must be accepted (optionally edited) to join the checklist, a final-screen
-check must be adopted with "Use this as my verdict", a narration assessment must be accepted to become a
-reviewer flag. Suggestions never change reasoning, verdicts or the outcome. Each suggestion stores a hash of
+check must be adopted with "Use this as my verdict" (offered whenever the latest check disagrees with your current
+verdict; the adopted run is stored as `accepted_from`), a narration assessment must be accepted to become a
+reviewer flag. Suggestions never change reasoning, verdicts or the outcome, and a later AI run never overwrites
+a decision you made. Each suggestion stores a hash of
 what it judged; if you edit that input it is marked **stale** and can't be accepted until re-run.
 
 Configure: in the desktop app, **Settings → Anthropic API key** (stored encrypted with Windows DPAPI via
@@ -148,11 +155,17 @@ once. Recording content is framed as untrusted data and the model is told not to
 ## Exports
 
 **Export…** on a review page or **Export selected** on the Recordings page builds a bundle in `exports/`,
-validates it, and offers a `.zip`. The dialog reports bundle validation separately from actions that couldn't
-be represented.
+validates it, and offers a `.zip`. The dialog says how many of the selected recordings were exported, lists
+any that were skipped with the reason, and reports bundle validation separately from actions that couldn't be
+represented.
+
+**Privacy gate.** A recording with an open high-severity privacy flag (typed email or secret, a redacted value
+that may be visible on screen, an email or sensitive-looking URL parameter in a window title, element name or
+page URL) is skipped. Dismiss the flags after checking the images, or click **I checked the privacy flags:
+export anyway** (`engine export --allow-privacy-flags`).
 
 ```
-thinkaloud-export-<time>-<n>rec/
+thinkaloud-export-<time>-<n>rec-<random>/
   manifest.json                      formats, recordings (with the human outcome), every file + SHA-256
   README.md, thinkaloud_dataset.py   loader/validator, standard library only
   recordings/<id>/trajectory.json    thinkaloud.dataset/1.0
@@ -166,19 +179,23 @@ thinkaloud-export-<time>-<n>rec/
   with capture times and status; UI Automation target; window context; narration **verbatim with timing**
   (`before_action` / `during_action` / `after_action`) and source "human narration (speech-to-text)"; current
   reasoning with its source and the original if a reviewer edited it; flags and dismissed flags; AI assessments
-  marked `suggestion_only` with the human decision; review outcome (`outcome_source: "human"`), checklist,
-  notes; coordinate space; timeline.
+  marked `suggestion_only` with the human decision; review outcome (`outcome_source: "human"`), checklist
+  (with `accepted_from` for adopted AI checks and `verdict_outdated` when an item was reworded after its
+  verdict), notes, `rebase_history`; coordinate space; timeline. Typing that was corrected keeps the raw
+  `keystrokes` (`"helo⌫lo"`); drags carry start and end points.
 - **`thinkaloud.claude_computer_use/1.0`**: the recording as a conversation using Anthropic's
   **`computer_toolset_20260801`** (checked against the official computer-use tool docs on 2026-09-26): member
   tools as `tool_use.name` with `toolset_name: "computer"`, coordinates in the scaled screenshot space. Each step
   is an assistant turn with the action call(s) and a `screenshot` call, answered by `OK` results and the
   after-state image. Mapping: left click ×1/2/3 → `left_click`/`double_click`/`triple_click`; right/middle →
-  `right_click`/`middle_click`; modifiers → `text`; typing → `type`; keys → `key` with xdotool names
-  (`Return`, `ctrl+c`, `Page_Down`, `repeat` ≤ 100); scroll → one `scroll` per direction run
-  (`scroll_direction`, whole-notch `scroll_amount`, rounding reported). Narration, review and QC are in
+  `right_click`/`middle_click`; drag → `left_click_drag`; modifiers → `text`; typing → `type`; Backspace that
+  deletes existing text → `key BackSpace` (with `repeat`); keys → `key` with xdotool names (`Return`, `ctrl+c`,
+  `Page_Down`, `slash`, `repeat` ≤ 100); scroll → one `scroll` per direction run (`scroll_direction`, whole-notch
+  `scroll_amount`, rounded half up and reported; a run under half a notch is an error). Narration, review and QC are in
   `annotations`, never in the conversation; narration is not presented as model reasoning. Anything that can't
   be represented faithfully (QC-redacted text, masked password input, off-screen clicks, unknown keys) is left
-  out and listed in `errors`, and the file is marked `valid_for_training: false`. Image blocks use
+  out and listed in `errors`, and the file is marked `valid_for_training: false`. Typing that was entered and
+  then deleted again is kept as a step (warning), since replaying it as `type ""` would be meaningless. Image blocks use
   `{"type": "thinkaloud_asset"}` sources; `Bundle.claude_messages(id)` returns API-ready base64.
 
 ```bash
@@ -193,8 +210,10 @@ messages = b.claude_messages(rec["recording"]["id"])
 
 The validator checks manifest checksums, schema, step order, that every *before* image finished capturing before
 its action and every *after* image started after the action ended and finished before the next one began,
-coordinates, and references; for the Claude file: message alternation, member names and inputs, coordinates
-inside the screenshot, one result per call with `toolset_name`.
+coordinates, references, and that every image is a real PNG (for the Claude file, of the declared screenshot
+size); for the Claude file: message alternation, member names and inputs (including key names), coordinates
+inside the screenshot, one result per call with `toolset_name`. A `.zip` is extracted to a temporary folder
+that is removed when the bundle is closed (`with td.load_bundle(...) as b:`).
 
 ## Data formats and timeline
 
@@ -236,7 +255,9 @@ Video frames fill gaps when no still qualifies (marked `source: "video"`, lossy)
 Scrolls form one step until a different kind of input, a change of window or modifiers, a pause longer than
 `scroll_pause_s` (5 s), a pause/stop marker, or the end: never because a timer ran out. Typing merges within
 `type_gap_s` (2 s) in the same window; Enter/Tab and shortcuts are their own steps; repeats of a special key merge;
-double/triple clicks use the system double-click time. Steps have stable `uid`s (`s` + first event seq).
+a Backspace with no typed text before it is its own `key` step (it deletes text that was already there);
+double/triple clicks use the system double-click time and box and never merge across a pause; a press and release
+more than 5 px apart is a `drag` step. Steps have stable `uid`s (`s` + first event seq).
 `trajectory.json` also carries `observations`, `target` (+ `frame_rect`, `reliable` = looked up within 500 ms),
 `description`, `context`, `narration` (segment ids + timing), `media`, `coordinate_space`, `timeline`,
 `final_observation`. Recorder 0.1 recordings still process (`source.legacy: true`) with explicit legacy statuses.
@@ -245,11 +266,17 @@ double/triple clicks use the system double-click time. Steps have stable `uid`s 
 
 - `sessions/`, `exports/`, `jobs/`, recordings' media and review files are gitignored.
 - Keys typed into fields Windows reports as password fields (UI Automation `IsPassword`) are replaced with `•`
-  before anything is written. Typed text that looks like an email or password elsewhere is flagged and redacted
+  before anything is written. The focused field is looked up again whenever focus may have moved (a click, Tab,
+  Enter, a shortcut, a new typing burst), so a password typed right after Tab is masked. Masking **fails closed**:
+  if the focused field can't be checked (UI Automation timed out or errored), the keys are masked too and the
+  recording gets a `masked_unknown_focus` flag. Typed text that looks like an email or password elsewhere is flagged and redacted
   from exports (`[REDACTED]`), but **the screen may still show it**: QC raises `redacted_value_on_screen`, and
   `--ocr` (Tesseract) flags emails visible in screenshots. Screenshots are not blurred.
 - The recorder captures the whole monitor while recording. Use Pause for anything private.
 - AI review sends only what each button lists, only after consent. The API key never reaches the browser.
+- The viewer listens on 127.0.0.1 only, and its API refuses requests whose Host isn't loopback, cross-origin
+  requests, and writes that aren't `application/json`. Frame and media paths are confined to the recording folder.
+- Exports skip recordings with open high-severity privacy flags unless you explicitly override (see Exports).
 
 ## Verification
 
@@ -261,9 +288,12 @@ python scripts/e2e_capture.py --flash-seconds 180 --flash-interval 3   # multi-m
 ```
 
 `scripts/e2e_capture.py` drives a controlled Chromium test page (`scripts/testbench`) with injected mouse and
-keyboard input while the real recorder runs, then checks UI Automation targets, password masking, scroll grouping,
-before/after pixel colours, and video-vs-input timing. It moves your mouse; the test window is always-on-top and
-every click, scroll and keystroke is preceded by a check that the test window is in front (it aborts otherwise).
+keyboard input while the real recorder runs, then checks UI Automation targets, password masking (clicked into and
+tabbed into), scroll grouping, before/after pixel colours, and video-vs-input timing. It moves your mouse; the test
+window is always-on-top (the driver refuses to start if it isn't) and every click, scroll and keystroke is preceded
+by a check that the test window is in front and under the cursor (it aborts otherwise).
+`node scripts/app_journey.mjs` runs the whole journey in the packaged desktop app (record → process → review →
+replay → export → reload) with the same guarded input driver.
 Results and measurements are in [docs/VALIDATION_LOG.md](docs/VALIDATION_LOG.md) and `docs/evidence/`;
 [docs/IMPLEMENTATION_CHECKLIST.md](docs/IMPLEMENTATION_CHECKLIST.md) maps every requirement to its evidence.
 
@@ -278,19 +308,23 @@ no dropped frames; audio clock drift 22.7 ppm.
 - **Before images can be up to one frame period old** (≈250 ms at 4 fps), so a hover menu that appeared just
   before a click may be missing from the before image. Raise `--fps` for more precise before-states (more CPU).
 - **UI Automation is best effort.** Apps that don't implement it (games, some Java/Electron apps without
-  accessibility enabled, remote desktops) give `pane`/`custom` or nothing; lookups on unresponsive apps are
-  bounded (600 ms) and a result that arrives after 500 ms is not used for descriptions. URLs are only recorded
-  when the page's Document element exposes one.
+  accessibility enabled, remote desktops) give `pane`/`custom` or nothing; when a hit test lands on a container
+  (document, pane, group) the recorder walks down to the deepest element under the point within 150 ms. Lookups on
+  unresponsive apps are bounded (600 ms) and a result that arrives after 500 ms is not used for descriptions.
+  URLs are only recorded when the page's Document element exposes one.
 - **Password masking depends on the app reporting a password field.** Custom password widgets that don't set
   `IsPassword` are captured; QC heuristics then flag and redact likely secrets in exports, but screenshots may
-  show them.
+  show them. Masking also means the exact typed text is unknown, so masked steps are errors in the Claude export.
 - **Audio alignment** is placed from callback timing (± the device's reported latency, 26 ms here) and drift is
   measured, not corrected. End-to-end acoustic latency against a reference beep could not be measured on the
   development machine (no loopback device).
 - **Scroll amounts are wheel notches**; the Claude export rounds runs to whole notches (reported).
-- **Drag, hover and mouse moves are not recorded**; drags appear as clicks.
+- **Hover and mouse moves are not recorded.** Drags are recorded as start and end points only (no path), and
+  only for a press and release of the same button with nothing in between.
 - **AI review was only tested against a fake client** (no API key in the development environment); the live
-  API path is implemented to the documented SDK interface but unverified.
+  API path is implemented to the documented SDK interface (anthropic 1.8.0) but unverified.
+- **Non-US keyboard layouts** were covered by unit tests only (AltGr characters are recorded as typed text);
+  not checked on a real non-US layout.
 - **The OCR check (`--ocr`) is untested**: Tesseract isn't installed on the development machine; the Docker
   image can include it (`--build-arg WITH_OCR=1`).
 - **The installer is unsigned**, ~190 MB, Windows x64 only.

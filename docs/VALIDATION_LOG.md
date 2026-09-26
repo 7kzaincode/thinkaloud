@@ -56,12 +56,76 @@ Pre-existing failures: none.
 | C23 | Pause/resume, native | recorder `--json`, stdin pause at ~0.8 s, resume at ~2.9 s, stop | markers pause/resume in events and `meta.input.pauses`; 0 of 11 video frames captured inside the pause; 0 of 29 345 audio samples non-zero inside the pause (mic noise present outside); session deleted afterwards |
 | C24 | Frozen engine (PyInstaller) | `engine/dist/thinkaloud-engine.exe` ai-status, process, export, validate, batch (frozen subprocesses), 3 s record | all succeed; UIA available in the frozen build; export bundle validates; `dataset.py` copied from beside the frozen module (fixed: `ds.__file__` is a .pyc path when frozen) |
 | C22 | Acoustic audio alignment on this machine | Stereo Mix (WDM-KS) at 16/48 kHz | **BLOCKED**: PortAudio host error; output is a USB headset, so no loopback or acoustic path to measure mic latency against a known beep. Covered instead by: synthetic A/V placement test (C6) and measured clock drift (C21) |
+| C25 | Unit suites after the review fixes | `pytest -q` in processor/ and recorder/; `npm test`, `npx tsc --noEmit` in viewer/ | processor 100 passed, recorder 7 passed (new: fake-UIA recorder tests), viewer 15 passed, typecheck clean |
+| C26 | Media Range and API guard against the standalone build | `node .next/standalone/server.js` on 127.0.0.1:3299 with `THINKALOUD_DIRS=samples`, curl | no Range → 200 full; `bytes=0-99` → 206 (100 B); `bytes=100-`, `bytes=-50` → 206; multi-range, reversed (`500-100`), other unit (`items=`), `bytes=-` → 200 full (header ignored per RFC 9110); `bytes=-0` and a start at EOF → 416 with `Content-Range: bytes */size`; end past EOF clamped. Guard: foreign Host → 403, cross-origin PUT → 403, `text/plain` PUT → 415, encoded `../` frame path → 404 |
+| C27 | Batch start failures are reported | standalone viewer with `THINKALOUD_ENGINE` pointing at a missing exe, `POST /api/batch` | HTTP 500 `could not start the engine: spawn … ENOENT` (was: "Started job…" and nothing) |
+| C28 | Docker batch after the fixes | `docker compose build`; `docker run … batch /data/sessions --concurrency 2 --retries 1` on 3 synthetic copies (one needing Whisper), the 0.1 fixture, and a corrupt `events.jsonl` | 4 done / 1 failed in 22.6 s, failure isolated with the clean `InputError` message and retried once; second run skipped the 4 up-to-date recordings; no `processing.lock` left behind. (From Git Bash, container paths need `MSYS_NO_PATHCONV=1`; without it the first attempt reported "no recordings found".) |
+| C29 | Frozen engine export gate | `engine/dist/thinkaloud-engine/thinkaloud-engine.exe export samples/synthetic-flight` then `--allow-privacy-flags`, `validate`, and the bundled `thinkaloud_dataset.py` | gated run: `ok: false`, recording skipped with its 2 open privacy flags listed; override: bundle written, `validate` ok, standalone validator `OK: 1 recording(s), 0 error(s)` |
+| C30 | Packaged desktop journey after the fixes | `electron-builder --win --dir`, `node scripts/app_journey.mjs` | first attempt: the guarded driver **aborted before any input** because the user's own app window covered the test bench. Cause: the bench called `setAlwaysOnTop` before the window was shown and was not topmost (`WS_EX_TOPMOST` unset). Fixed: create it topmost, re-assert after show, report the state in layout.json, refuse to drive input if it is not topmost. Re-run **17/17**; the UIA descend fallback now names the click "Clicked the Add to Cart button" (previously "…document"). Report: `docs/evidence/app_journey_report.json` |
+| C31 | Native E2E after the fixes, with Tab into a password field | `python scripts/e2e_capture.py --report docs/evidence/e2e_report.json` | **27/27**: new checks: Tab is its own step; the password typed after Tab (no click, different length from the first password) is masked by the focus check; neither password appears in any file or in reassembled keystrokes. Sync: 6/6 flashes, 198–217 ms, none early, 0 dropped |
 
 ## Review findings
 
-(appended as reviews run)
+Two independent fresh-context reviews ran against commit 3dd4e89: **A** (correctness and data integrity) and
+**B** (product, integration, adversarial). Every finding was validated (most were reproduced by the reviewer with
+a probe on synthetic data), fixed at the root, and covered by a regression test or a reproducible check.
+Fixes are in a57bb02 and later. Test names are in `processor/tests/`, `recorder/tests/` and `viewer/lib/review.test.ts`.
+
+### Review A: correctness and data integrity
+
+| # | Sev | Finding | Fix | Evidence |
+|---|---|---|---|---|
+| A1 | critical | Password typed right after Tab saved in plain text (focus only re-checked at a new burst or click) | the focused field is re-checked after any non-text key; masking fails closed when focus is unknown | `test_password_after_tab_is_masked`, `test_unknown_focus_fails_closed`; native C31 |
+| A2 | high | Backspace-only edits dropped; the previous step's after-image then showed the deletion | a Backspace with no typed text becomes a `key backspace` step; typed-then-deleted steps are kept with `keystrokes` | `test_backspace_deleting_existing_text_is_its_own_step`, `test_corrections_keep_raw_keystrokes_and_typed_then_deleted_is_kept` |
+| A3 | high | Ctrl+Shift+letter recorded as Ctrl+letter | `key_name` reports the key kind; Shift is kept whenever the key is not a plain character or other modifiers are held | `test_ctrl_shift_letter_keeps_shift_and_altgr_is_text` |
+| A4 | medium | `os.replace` fails on Windows while the viewer has the file open; heartbeat thread could die | `fsutil.replace_retry`/`write_json_atomic` everywhere; heartbeat and status writes never raise (errors recorded in the job file) | `test_atomic_write_waits_for_a_reader_to_let_go` |
+| A5 | medium | Queued recordings shown as "interrupted" after 30 s | heartbeat refreshes queued and running entries | `test_queued_recordings_keep_heart_beating` |
+| A6 | medium | Drags recorded as clicks | recorder records the release when moved ≥ 5 px; `drag` step; Claude `left_click_drag`; viewer shows the path | `test_drag_release_recorded_only_when_moved`, `test_drag_from_press_and_release`, `test_drag_and_punctuation_keys`, `test_description_of_drags_and_deleted_typing` |
+| A7 | medium | Backspaces deleting existing text exported as plain typing | see A2: exported as `key BackSpace` with repeat before the typing | `test_type_text_redacted_masked_backspace` |
+| A8 | medium | AltGr characters became key steps (email redaction missed, validator/export disagreed on key names) | Ctrl+Alt+printable is text (`altgr`); punctuation mapped to keysym names; export checks keys with the validator's pattern | `test_ctrl_shift_letter_keeps_shift_and_altgr_is_text`, `test_drag_and_punctuation_keys`; real non-US layout not tested (README) |
+| A9 | medium | Window context looked up late (seconds after the event) | foreground window handle captured in the input hook, described in the writer | `test_window_captured_at_input_time` |
+| A10 | medium | A save conflict (409) lost unsaved review edits | server rebases the incoming draft onto the new trajectory and returns it; the client adopts it | `rebase carries a cleared reasoning and a save-time rebase is not recorded` (viewer); `saveReview` |
+| A11 | medium | Schema 0.1 trajectories exported with invalid tool ids and all-missing before images | `normalize()` in `effective_trajectory`; tool ids sanitized | `test_legacy_recording_exports_with_explicit_statuses` |
+| A12 | low | Lost tail at stop went unnoticed; audio overflows and recorder errors not surfaced | UIA wait cut to 0.2 s once stopping; QC `recording_incomplete`, `recorder_errors`, `audio_gaps` | `test_session_flags_for_incomplete_recordings_and_capture_problems` |
+| A13 | low | Lone Win/Alt never recorded | emitted on release when no other key was pressed | `test_lone_win_key_is_recorded` |
+| A14 | low | Rebase silently undid a cleared reasoning | carried whenever `reasoning_original` exists | `rebase carries a cleared reasoning…` (viewer) |
+| A15 | low | 0.25 notch exported as 1 notch with only a warning; zero-delta scroll omitted silently | under half a notch is an error; half-up rounding; no-direction scroll is an error | `test_scroll_runs_keep_order_direction_and_warn_on_rounding` |
+| A16 | low | Audio: overflows not padded; pause muting decided late; offset estimate unconfirmed | overflow gaps padded with silence (`overflow_padding_s`); pause decided in the callback | offset: acoustic check BLOCKED (C22) |
+| A17 | low | Double-click merged across a pause marker and with a ±6 px box | pause/resume/end markers are barriers; box from the recorded system metrics (default ±2 px) | `test_no_double_click_across_pause_and_system_rectangle`, `test_segmentation_uses_the_recorded_double_click_box` |
+| A18 | low | Viewer temp file names not unique per write | random temp names (viewer and processor) | code review; C12-style autosave in C30 |
+| A19 | low | Stop could hang on a full queue; still-index write unprotected | `put(None, timeout=20)`; index writes guarded | recorder exits 0 in C31 |
+
+### Review B: product, integration, adversarial
+
+| # | Sev | Finding | Fix | Evidence |
+|---|---|---|---|---|
+| B1 | high | Export trusted the browser-written review file: arbitrary file read into bundles and writes outside the export folder | server merges only review-owned fields; exporter uses the folder name as id and confines images to `frames/*.png` inside the recording | `test_reviewer_file_cannot_inject_paths_or_ids` |
+| B2 | high | Browser-mode viewer listened on all interfaces with no Origin check; `text/plain` POSTs bypassed CORS | `-H 127.0.0.1`; `guard()` on every route: loopback Host, same-origin, JSON writes | C26 |
+| B3 | high | Password after Tab in plain text; UIA timeout failed open | same as A1 | as A1 |
+| B4 | medium | Export ignored open high-severity privacy flags; URLs and titles not scanned | export skips such recordings unless overridden; QC `email_in_context`, `sensitive_url` (redacted/stripped) | `test_open_privacy_flags_block_export_unless_confirmed`, `test_emails_and_tokens_in_urls_titles_are_flagged_and_redacted`; C29 |
+| B5 | medium | Queued rows "interrupted"; "Process all new" resubmitted in-flight rows; no claim lock | queued heartbeats; in-flight rows excluded; `O_EXCL` `processing.lock` with stale takeover | `test_stale_lock_is_taken_over_and_locks_are_released`, `test_live_run_by_another_job_is_not_touched` |
+| B6 | medium | Export dialog listed skipped recordings as "not representable" under a success headline | `skipped` list; "N of M recordings exported" | `test_stale_review_is_refused`, `test_unprocessed_recording_is_reported` |
+| B7 | medium | Autosave could reorder, drop on navigation, collide on temp names, drop edits on 409; export didn't flush | one PUT in flight; flush on unmount and before export; `beforeunload` warning; unique temps; server-side rebase | C30 (autosave, reload persistence) |
+| B8 | medium | Undo after an AI re-run left the earlier run's flag | provenance matched by suggestion key | `undo after an AI re-run removes the flag the earlier run created` |
+| B9 | medium | Accepted AI verdict lost its provenance; "Use this as my verdict" hidden when the AI later disagreed; rewording kept the verdict | `accepted_from`, `verdict_text`; button shown whenever verdicts differ; outdated-verdict notice; both exported | `a re-run never changes an accepted verdict…`, `test_checklist_verdict_provenance_and_rewording_are_exported` |
+| B10 | low–medium | Export name collisions (same id, same second) | recordings keyed by folder name; random bundle suffix | `test_bundle_names_never_collide` |
+| B11 | low | Corrupt screenshot and route timeout surfaced as a generic engine error | typed `bad_image`; route timeout 900 s > SDK worst case | `test_corrupt_final_screenshot_is_a_typed_error` |
+| B12 | low | Typing a reason then clearing it left `missing_reasoning` dismissed and hid revert | clearing restores the flag; revert visible whenever an original exists | `clearing the reasoning is a reviewer edit that can be reverted` |
+| B13 | low | Rebase dropped dismissals when a flag's detail text changed; `dropped` overwritten | dismissals match by code; `rebase_history` kept and exported | `rebase keeps a dismissal when only the flag's detail text changed`, `test_checklist_verdict_provenance_and_rewording_are_exported` |
+| B14 | low | Heartbeat read-modify-write could overwrite `done`; unguarded writes aborted a job | one lock around status read-modify-write; writes never raise | `test_failure_is_isolated_and_everything_is_persisted` |
+| B15 | low | Batch start failures invisible; unguarded `r.json()`; no spawn `error` listener in the desktop app | `startEngine` waits 2.5 s and reports an early exit; guarded fetch; `error` listeners | C27 |
+| B16 | low | Recording text could close the untrusted-data wrapper | `<` escaped as `\u003c` | `test_recording_text_cannot_close_the_untrusted_block` |
+| B17 | low | Session id pattern allowed `.` and `..` | `SAFE_ID` rejects them | C26 (traversal → 404) |
+| B18 | low | Validator left zip copies in %TEMP%; didn't check images | temp dir removed on close; PNG signature and Claude screenshot size checked | `test_validator_rejects_non_png_images_and_zip_copies_are_cleaned` |
+| B19 | low | AI runs set `review.edited`; `run.note` never shown; unused `review_stale` | AI never sets `edited`; note shown in End panel; field removed | viewer tests (AI never changes decisions) |
+| B20 | nit | Reversed/multi/other-unit Range → 416 instead of ignoring the header | RFC 9110 handling | C26 |
+
+Found while fixing (not in either review): the test bench was not actually topmost (C30), and the pipeline read the
+system double-click time but not the box size (A17).
 
 ## Blocked checks
 
 - Live Anthropic API calls (AI review, optional live validation of the Claude export): no credential available in this environment.
 - Acoustic end-to-end audio latency (mic hears a beep at a known time): no loopback/acoustic path on this machine (C22).
+- OCR of screenshots (`--ocr`): Tesseract is not installed on this machine; untested.
+- AltGr / non-US keyboard layouts: unit-tested with synthetic key events only.

@@ -187,6 +187,30 @@ def test_human_decisions_and_ai_suggestions_keep_provenance(processed, tmp_path)
     assert ai["suggestion_only"] is True and ai["human_decision"] == "rejected"
 
 
+def test_checklist_verdict_provenance_and_rewording_are_exported(processed, tmp_path):
+    adopted = {"run_id": "ai-2", "verdict": "supported", "input_hash": "x"}
+    t = review(processed, outcome="pass",
+               checklist=[{"id": "c1", "text": "Nonstop flight on checkout", "origin": "human",
+                           "human_verdict": "met", "human_verdict_source": "accepted_ai_suggestion",
+                           "accepted_from": adopted, "verdict_text": "Nonstop flight on checkout",
+                           "ai_check": {"run_id": "ai-5", "verdict": "contradicted", "evidence": "1 stop", "input_hash": "x"}},
+                          {"id": "c2", "text": "Price under $400", "origin": "human",
+                           "human_verdict": "met", "human_verdict_source": "reviewer", "verdict_text": "Price under $350",
+                           "ai_check": None}],
+               rebase_history=[{"at": "t", "from_hash": "old", "dropped": ["step s000001: edits no longer match a step"]}])
+    (processed / "trajectory.reviewed.json").write_text(json.dumps(t), encoding="utf-8")
+    r = export_bundle([processed], tmp_path / "out", allow_privacy_flags=True)
+    assert r["validation"]["ok"], r["validation"]["errors"]
+    rec = next(ds.load_bundle(r["bundle"]).recordings())
+    c1, c2 = rec["review"]["checklist"]
+    assert c1["accepted_from"] == adopted and c1["ai_check"]["verdict"] == "contradicted"
+    assert c1["verdict_outdated"] is False and c2["verdict_outdated"] is True
+    assert c2["verdict_given_for"] == "Price under $350"
+    assert rec["review"]["rebase_history"][0]["dropped"]
+    assert any("c2 was reworded" in w for w in r["warnings"])
+    assert any("could not be carried over" in w for w in r["warnings"])
+
+
 def test_stale_review_is_refused(processed, tmp_path):
     t = review(processed, outcome="pass")
     t["review"]["base_hash"] = "0000000000000000"

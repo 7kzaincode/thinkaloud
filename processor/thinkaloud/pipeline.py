@@ -89,9 +89,13 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
 
     # 2. steps
     cfg = config or SegmentConfig()
-    dct = (meta.get("capture") or {}).get("double_click_time_s")
+    cap = meta.get("capture") or {}
+    dct = cap.get("double_click_time_s")
     if config is None and dct:
         cfg.double_click_s = float(dct)
+    box = cap.get("double_click_size_px")
+    if config is None and isinstance(box, list) and box and all(isinstance(v, (int, float)) and v > 0 for v in box):
+        cfg.double_click_px = max(1, int(max(box)) // 2)     # the system box is centred on the first click
     steps = merge_events(events, origin=origin, config=cfg)
 
     # 3. before/after observations
@@ -176,7 +180,8 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
         "source": {"session_schema": meta.get("schema", "thinkaloud.session/0.1"),
                    "recorder_version": meta.get("recorder_version"), "legacy": legacy,
                    "segmentation": {"type_gap_s": cfg.type_gap_s, "scroll_pause_s": cfg.scroll_pause_s,
-                                    "repeat_gap_s": cfg.repeat_gap_s, "double_click_s": cfg.double_click_s}},
+                                    "repeat_gap_s": cfg.repeat_gap_s, "double_click_s": cfg.double_click_s,
+                                    "double_click_px": cfg.double_click_px}},
         "screen": {"w": screen.get("w"), "h": screen.get("h")},
         "coordinate_space": {
             "frame_size": [screen.get("w"), screen.get("h")],
