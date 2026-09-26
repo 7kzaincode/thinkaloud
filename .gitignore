@@ -1,7 +1,7 @@
 # Real recordings never get committed: audio, screenshots, keystrokes, transcripts.
-sessions/
-exports/
-jobs/
+/sessions/
+/exports/
+/jobs/
 *.wav
 !samples/synthetic-flight/audio.wav
 **/frames/
