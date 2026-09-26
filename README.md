@@ -193,16 +193,19 @@ thinkaloud-export-<time>-<n>rec-<random>/
   `keystrokes` (`"helo⌫lo"`); drags carry start and end points.
 - **`thinkaloud.claude_computer_use/1.0`**: the recording as a conversation using Anthropic's
   **`computer_toolset_20260801`** (checked against the official computer-use tool docs on 2026-09-26): member
-  tools as `tool_use.name` with `toolset_name: "computer"`, coordinates in the scaled screenshot space. Each step
-  is an assistant turn with the action call(s) and a `screenshot` call, answered by `OK` results and the
-  after-state image. Mapping: left click ×1/2/3 → `left_click`/`double_click`/`triple_click`; right/middle →
+  tools as `tool_use.name` with `toolset_name: "computer"`, coordinates in the scaled screenshot space (the centre of
+  the frame pixel, scaled: `floor((x + 0.5) * scale)`). Each step is an assistant turn with the action call(s) and a
+  `screenshot` call, answered by `OK` results and the after-state image. When the screen the model saw last is not
+  the screen the next action was taken on (a pause in between, an omitted step, a missing after-state), an extra
+  `screenshot` turn shows that action's before-image first. Mapping: left click ×1/2/3 → `left_click`/`double_click`/`triple_click`; right/middle →
   `right_click`/`middle_click`; drag → `left_click_drag`; modifiers → `text`; typing → `type`; Backspace that
   deletes existing text → `key BackSpace` (with `repeat`); keys → `key` with xdotool names (`Return`, `ctrl+c`,
-  `Page_Down`, `slash`, `repeat` ≤ 100); scroll → one `scroll` per direction run (`scroll_direction`, whole-notch
+  `Page_Down`, `slash`, `ctrl+plus`, a lone Win key → `super`, `repeat` ≤ 100); scroll → one `scroll` per direction run (`scroll_direction`, whole-notch
   `scroll_amount`, rounded half up and reported; a run under half a notch is an error). Narration, review and QC are in
   `annotations`, never in the conversation; narration is not presented as model reasoning. Anything that can't
-  be represented faithfully (QC-redacted text, masked password input, off-screen clicks, unknown keys) is left
-  out and listed in `errors`, and the file is marked `valid_for_training: false`. Typing that was entered and
+  be represented faithfully (QC-redacted text, masked password input, off-screen clicks, unknown keys, a drag with
+  other input in between or a double-click drag) is left out and listed in `errors`, and the file is marked
+  `valid_for_training: false`. Typing that was entered and
   then deleted again is kept as a step (warning), since replaying it as `type ""` would be meaningless. Image blocks use
   `{"type": "thinkaloud_asset"}` sources; `Bundle.claude_messages(id)` returns API-ready base64.
 
@@ -265,7 +268,9 @@ Scrolls form one step until a different kind of input, a change of window or mod
 `type_gap_s` (2 s) in the same window; Enter/Tab and shortcuts are their own steps; repeats of a special key merge;
 a Backspace with no typed text before it is its own `key` step (it deletes text that was already there);
 double/triple clicks use the system double-click time and box and never merge across a pause; a press and release
-more than 5 px apart is a `drag` step. Steps have stable `uid`s (`s` + first event seq).
+more than 5 px apart is a `drag` step (a release is paired with its own press; if other input happened during the
+drag, or it followed a double-click, the click step keeps the end point as `release` with a `drag_problem`, and QC
+flags it `drag_not_represented`). Steps have stable `uid`s (`s` + first event seq).
 `trajectory.json` also carries `observations`, `target` (+ `frame_rect`, `reliable` = looked up within 500 ms),
 `description`, `context`, `narration` (segment ids + timing), `media`, `coordinate_space`, `timeline`,
 `final_observation`. Recorder 0.1 recordings still process (`source.legacy: true`) with explicit legacy statuses.
@@ -276,15 +281,27 @@ more than 5 px apart is a `drag` step. Steps have stable `uid`s (`s` + first eve
 - Keys typed into fields Windows reports as password fields (UI Automation `IsPassword`) are replaced with `•`
   before anything is written. The focused field is looked up again whenever focus may have moved (a click, Tab,
   Enter, a shortcut, a new typing burst), so a password typed right after Tab is masked. Masking **fails closed**:
-  if the focused field can't be checked (UI Automation timed out or errored), the keys are masked too and the
-  recording gets a `masked_unknown_focus` flag. Typed text that looks like an email or password elsewhere is flagged and redacted
-  from exports (`[REDACTED]`), but **the screen may still show it**: QC raises `redacted_value_on_screen`, and
-  `--ocr` (Tesseract) flags emails visible in screenshots. Screenshots are not blurred.
+  if the focused field can't be checked (UI Automation timed out or errored, and asking again didn't help), the keys
+  are masked too and the recording gets a `masked_unknown_focus` flag. A focus answer is only trusted if no click or
+  focus-moving key happened between the keystroke and the lookup. With `--no-uia`, or if UI Automation fails to
+  start, password fields can't be detected: nothing is masked and the recording gets `password_masking_off`.
+- Typed text that looks like an email or password is flagged and redacted from exports (`[REDACTED]`), including
+  text typed and then deleted again (checked, never quoted in descriptions; the raw `keystrokes` are removed), an
+  address typed in two bursts, and an address in the narration transcript. **The screen may still show it**: QC
+  raises `redacted_value_on_screen`, and `--ocr` (Tesseract) flags emails visible in screenshots. Screenshots are
+  not blurred.
+- Page URLs with secret-looking parameters (query or fragment, any spelling: `accessToken`, `api_key`, `jwt`,
+  `sessionid`, …) or a token in a reset/verify/magic-link path are flagged `sensitive_url` and stripped.
 - The recorder captures the whole monitor while recording. Use Pause for anything private.
 - AI review sends only what each button lists, only after consent. The API key never reaches the browser.
-- The viewer listens on 127.0.0.1 only, and its API refuses requests whose Host isn't loopback, cross-origin
-  requests, and writes that aren't `application/json`. Frame and media paths are confined to the recording folder.
-- Exports skip recordings with open high-severity privacy flags unless you explicitly override (see Exports).
+- The viewer listens on 127.0.0.1 only. Every request (pages, API, media) is refused unless its Host is a loopback
+  name (DNS rebinding) and it wasn't made by a page on another site (`Sec-Fetch-Site`); the API also refuses
+  cross-origin requests and writes that aren't `application/json`. Frame and media paths are confined to the
+  recording folder.
+- Exports skip recordings with open high-severity privacy flags unless you explicitly override (see Exports). A
+  dismissal only carries over to a reprocessed recording when the flag is about the same content (a hash of the
+  flagged text/URL is stored with the flag), and the export rebuilds flags from the processor's output rather than
+  trusting the review file's list.
 
 ## Verification
 
@@ -327,8 +344,11 @@ no dropped frames; audio clock drift 22.7 ppm.
   measured, not corrected. End-to-end acoustic latency against a reference beep could not be measured on the
   development machine (no loopback device).
 - **Scroll amounts are wheel notches**; the Claude export rounds runs to whole notches (reported).
-- **Hover and mouse moves are not recorded.** Drags are recorded as start and end points only (no path), and
-  only for a press and release of the same button with nothing in between.
+- **Hover and mouse moves are not recorded.** Drags are recorded as start and end points only (no path); a drag
+  with other input in between, or a double-click drag, is kept but can't be exported to the Claude format.
+- **UI Automation descends from a Document hit** by bounding rectangles (Chromium sometimes answers a hit test
+  with its Document); when overlapping elements contain the point, the result is marked `ambiguous` and not used
+  for descriptions, because rectangles don't say which element is on top.
 - **The Anthropic AI path was only tested against a fake client** (no Anthropic key in the development
   environment); it is implemented to the documented SDK interface (anthropic 1.8.0). The same checks were run live
   against Google Gemini (see docs/VALIDATION_LOG.md), which exercises the prompts, schemas, validation and UI, but

@@ -36,12 +36,12 @@ test names refer to `processor/tests/` and `viewer/lib/review.test.ts`.
 | B1.4 | Explicit errors/warnings for unsupported actions | `claude_calls` problems → `errors`, `valid_for_training` | tests for redacted/masked/off-screen/unknown key/rounding | VERIFIED |
 | B1.5 | Standalone loader/validator + fixtures | `dataset.py` copied as `thinkaloud_dataset.py` | tamper + ownership violation detection tests; frozen engine export validates | VERIFIED |
 | B1.6 | One-click export with accurate reporting | `ExportDialog.tsx`, `/api/export`, download route; privacy gate | browser export (C12, C13); packaged app export + download + independent validation (C30); gate (C29) | VERIFIED |
-| B2.1 | Anthropic integration, configurable, key server-side | `ai_review.py`, `/api/sessions/[id]/ai`, `/api/ai/status`, desktop `safeStorage` | 14 fixture tests | IMPLEMENTED; live BLOCKED (no key) |
-| B2.2 | Narration assessment, filler/missing | `ai_review.py` narration | fixture tests | VERIFIED (fixtures) |
+| B2.1 | Anthropic integration, configurable, key server-side | `ai_review.py` (Anthropic default; Google Gemini as a second provider), `/api/sessions/[id]/ai`, `/api/ai/status`, desktop `safeStorage` per provider | 33 fixture tests (17 Anthropic, 16 Gemini); live via Gemini through engine, UI and frozen engine (C34–C36) | VERIFIED live with Gemini; Anthropic live BLOCKED (no key) |
+| B2.2 | Narration assessment, filler/missing | `ai_review.py` narration | fixture tests; live: 17 assessments incl. a critical one (C34, C35) | VERIFIED (fixtures + live Gemini) |
 | B2.3 | Editable checklist drafts | drafts → accept/edit/reject | `review.test.ts` drafts test; browser checklist | VERIFIED (fixtures + UI) |
-| B2.4 | Final-screen supported/contradicted/unknown | `ai_review.py` final_screen | fixture tests; outcome never set by AI | VERIFIED (fixtures) |
+| B2.4 | Final-screen supported/contradicted/unknown | `ai_review.py` final_screen | fixture tests; live: supported + unknown where not visible (C34, C35); outcome never set by AI | VERIFIED (fixtures + live Gemini) |
 | B2.5 | Human confirmation, provenance, staleness | `lib/review.ts` | 15 viewer tests (incl. undo after re-run, accepted check then re-run, reworded items); provenance exported (`test_checklist_verdict_provenance_and_rewording_are_exported`) | VERIFIED |
-| B2.6 | Structured output validation, errors, disclosure, untrusted data | `ai_review.py`, EndPanel consent | error mapping tests (rate limit, auth, 5xx, timeout, network, refusal, truncation, malformed, missing image/credentials) | VERIFIED (fixtures) |
+| B2.6 | Structured output validation, errors, disclosure, untrusted data | `ai_review.py`, EndPanel consent (names the provider and model) | error mapping tests for both providers; live 503/429 surfaced as typed errors and recorded runs (C34, C35) | VERIFIED |
 | B3.1 | Batch view with real metrics | `Batch.tsx`, `metrics.ts` | metric denominator test; browser (C12, C15) | VERIFIED |
 | B3.2 | Filters, navigation, batch controls | `Batch.tsx`, `/api/batch` | browser: Process selected on 3 recordings (C15) | VERIFIED |
 | B3.3 | Docker batch: concurrency, status, retries, idempotent, restart | `batch.py`, Dockerfile, compose | C17, C18; 5 batch tests | VERIFIED |
@@ -50,9 +50,9 @@ test names refer to `processor/tests/` and `viewer/lib/review.test.ts`.
 
 | ID | Requirement | Status |
 |---|---|---|
-| I1 | Full journey task → record → process → inspect → replay → AI → decisions → batch → export | VERIFIED except live AI: packaged desktop app in one run, record → process → review → replay → checklist/outcome → export → download → reload → recordings page, 17/17 (C30); batch (C15, C28); AI step BLOCKED (no key; fixture-tested) |
+| I1 | Full journey task → record → process → inspect → replay → AI → decisions → batch → export | VERIFIED: packaged desktop app in one run, record → process → review → replay → checklist/outcome → export → download → reload → recordings page, 17/17 (C30, C37); AI suggestions and decisions live in the UI via Gemini (C35); batch (C15, C28, C39) |
 | I2 | Persistence across reloads; reprocessing keeps human edits | VERIFIED (C12 autosave; C15 rebase) |
 | I3 | Clear recording state, stop and pause, password masking | VERIFIED (masking by click and by Tab, fail-closed: C31; pause C23) |
 | I4 | Independent review A (correctness/data integrity) | VERIFIED: 19 findings, all fixed with tests or checks (VALIDATION_LOG "Review A") |
 | I5 | Independent review B (product/adversarial) | VERIFIED: 20 findings, all fixed with tests or checks (VALIDATION_LOG "Review B") |
-| I6 | Re-review of the fixes and the final integrated state | IN PROGRESS |
+| I6 | Re-review of the fixes and the final integrated state | Round 2 (A, B re-review + fresh reviewer C): 28 merged findings, all fixed with tests or checks (VALIDATION_LOG "Round 2"); round 3 on the final diff: IN PROGRESS |
