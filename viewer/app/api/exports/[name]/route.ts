@@ -2,10 +2,13 @@ import { createReadStream, promises as fs } from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { DATA_DIR } from "@/lib/sessions";
+import { guard } from "@/lib/guard";
 
 type Ctx = { params: Promise<{ name: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(req: Request, { params }: Ctx) {
+  const denied = guard(req);
+  if (denied) return denied;
   const { name } = await params;
   if (!/^thinkaloud-export-[\w.-]+\.zip$/.test(name)) return new Response("not found", { status: 404 });
   const p = path.join(/*turbopackIgnore: true*/ DATA_DIR, "exports", name);

@@ -65,7 +65,10 @@ async function waitFor(c, expr, timeoutMs = 30000, label = expr) {
     try { const v = await c.evaluate(expr); if (v) return v; } catch { /* navigating */ }
     await sleep(300);
   }
-  throw new Error(`timed out waiting for ${label}`);
+  const state = await c.evaluate(`JSON.stringify({ url: location.href, bridge: !!window.thinkaloud,
+    inputs: document.querySelectorAll('.field input').length, options: document.querySelectorAll('select option').length,
+    text: document.body.innerText.slice(0, 400) })`).catch((e) => String(e));
+  throw new Error(`timed out waiting for ${label}; page: ${state}`);
 }
 
 const setInput = (sel, value) => `(() => { const el = document.querySelector(${JSON.stringify(sel)});
@@ -79,7 +82,7 @@ async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ta-journey-"));
   const layout = path.join(tmp, "layout.json");
   const tb = spawn(ELECTRON, [path.join(ROOT, "scripts", "testbench")], { env: { ...process.env, THINKALOUD_TB_LAYOUT: layout }, stdio: "ignore" });
-  const app = spawn(APP, [`--remote-debugging-port=${PORT}`], { stdio: "ignore" });
+  const app = spawn(APP, [`--remote-debugging-port=${PORT}`], { stdio: "ignore", env: { ...process.env, THINKALOUD_USER_DATA: path.join(tmp, "profile") } });
   let sessionId = null;
   let exportZip = null;
   try {
@@ -114,13 +117,15 @@ async function main() {
     await sleep(800);
     ok("after view renders an image or an explicit reason", await c.evaluate("!!(document.querySelector('.stage img')?.naturalWidth || document.querySelector('.noshot b')?.textContent)"));
     // step with the Add to Cart click: walk steps until its description shows up
-    let found = false;
-    for (let i = 0; i < 30 && !found; i++) {
-      found = await c.evaluate("document.querySelector('.action')?.textContent === 'Clicked the Add to Cart button'");
-      if (!found) await c.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })), true");
-      await sleep(150);
+    const seen = [];
+    for (let i = 0; i < 30; i++) {
+      const d = await c.evaluate("document.querySelector('.action')?.textContent ?? '(end)'");
+      seen.push(d);
+      if (d === "Clicked the Add to Cart button" || d === "(end)") break;
+      await c.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })), true");
+      await sleep(250);
     }
-    ok("step described from UI Automation in the app", found);
+    ok("step described from UI Automation in the app", seen.includes("Clicked the Add to Cart button"), seen.join(" | "));
     await c.evaluate(clickText(".stage-bar button", "Replay"));
     const played = await c.evaluate(`(async () => { const v = document.querySelector('video'); if (!v) return 'no video';
       v.muted = true; await v.play(); await new Promise(r => setTimeout(r, 2500)); const out = { t: v.currentTime, ready: v.readyState, dur: v.duration };

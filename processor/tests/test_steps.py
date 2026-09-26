@@ -145,3 +145,35 @@ def test_legacy_v01_events_without_seq_or_raw():
     steps = merge_events(ev)
     assert steps[0]["uid"] == "s000001"
     assert "recorder 0.1" in steps[0]["action"]["unit"]
+
+
+# ---- regressions from independent review A ------------------------------------------
+def test_backspace_deleting_existing_text_is_its_own_step():
+    """Review A #2/#7: deletions of text that was already in the field were dropped or
+    folded into typing."""
+    ev = [click(1.0), {"t": 2.0, "type": "key", "key": "backspace"}, {"t": 2.1, "type": "key", "key": "backspace"},
+          {"t": 2.2, "type": "key", "key": "backspace"}] + keys(2.5, "xyz") + [click(6.0, x=300)]
+    steps = merge_events(ev)
+    assert [s["action"] for s in steps[1:3]] == [{"type": "key", "key": "backspace", "repeat": 3},
+                                                  {"type": "type", "text": "xyz"}]
+    assert len(steps) == 4
+
+
+def test_corrections_keep_raw_keystrokes_and_typed_then_deleted_is_kept():
+    ev = keys(1.0, "ab") + [{"t": 1.3, "type": "key", "key": "backspace"}, {"t": 1.4, "type": "key", "key": "backspace"}]
+    steps = merge_events(ev)
+    assert steps[0]["action"] == {"type": "type", "text": "", "backspaces": 2, "keystrokes": "ab⌫⌫"}
+
+
+def test_drag_from_press_and_release():
+    ev = [dict(click(1.0, x=10, y=10), seq=1), {"t": 1.4, "type": "release", "x": 200, "y": 40, "button": "left", "seq": 2}]
+    a = merge_events(ev)[0]["action"]
+    assert (a["type"], a["x"], a["y"], a["x2"], a["y2"]) == ("drag", 10, 10, 200, 40)
+
+
+def test_no_double_click_across_pause_and_system_rectangle():
+    ev = [click(1.0), {"t": 1.1, "type": "marker", "name": "pause"}, {"t": 1.2, "type": "marker", "name": "resume"},
+          click(1.3)]
+    assert [s["action"].get("count", 1) for s in merge_events(ev)] == [1, 1]
+    far = [click(1.0, x=10), click(1.2, x=15)]          # 5 px apart: outside the 4x4 double-click box
+    assert len(merge_events(far)) == 2

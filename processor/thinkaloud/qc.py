@@ -13,12 +13,15 @@ Step checks
   email_in_screenshot OCR found an email address in the step's screenshot (--ocr)
   masked_input        (info) the recorder masked typed characters in a password field
   redacted_value_on_screen (high) a redacted typed value may still be visible in screenshots
+  email_in_context    (high) an email address in the URL, window title or element name (redacted)
+  sensitive_url       (high) the page URL carries token/key/password-like query parameters (stripped)
   missing_after_state (warn) no screen was captured between this action and the next
   stale_before_state  (info) the "before" screen is older than expected
 
 Session checks
   missing_task, missing_success_criteria, no_final_screenshot,
-  unassigned_narration, no_narration, legacy_recording (info)
+  unassigned_narration, no_narration, legacy_recording (info), recording_incomplete (warn: no end
+  marker), recorder_errors (warn), audio_gaps (info: overflow padding), masked_unknown_focus (info)
 """
 from __future__ import annotations
 
@@ -124,6 +127,20 @@ def check_steps(steps: list[dict], segments: list[dict], pauses: list | None = N
 def check_session(meta: dict, steps: list[dict], segments: list[dict],
                   final_screenshot: str | None, legacy: bool = False) -> list[dict]:
     out = []
+    ev_end = meta.get("_has_end_marker")
+    if not legacy and ev_end is False:
+        out.append(flag("recording_incomplete", "warn",
+                        "No end marker: the recorder was stopped abnormally and the last events may be missing."))
+    if meta.get("errors"):
+        out.append(flag("recorder_errors", "warn", "; ".join(map(str, meta["errors"]))[:300]))
+    audio = meta.get("audio") or {}
+    if audio.get("overflows"):
+        out.append(flag("audio_gaps", "info", f"{audio['overflows']} audio buffer overflow(s); "
+                                              f"{audio.get('overflow_padding_s', 0)} s of silence inserted to keep sync."))
+    if (meta.get("input") or {}).get("masked_focus_unknown"):
+        out.append(flag("masked_unknown_focus", "info",
+                        f"{meta['input']['masked_focus_unknown']} typed character(s) masked because the focused "
+                        "field could not be checked."))
     if legacy:
         out.append(flag("legacy_recording", "info",
                         "Recorded with recorder 0.1: no after-state screenshots, no video, "
@@ -144,11 +161,39 @@ def check_session(meta: dict, steps: list[dict], segments: list[dict],
     return out
 
 
+SENSITIVE_PARAM = re.compile(r"(^|_|-)(token|key|secret|password|passwd|pwd|auth|session|sig|signature|code)($|_|-)", re.I)
+
+
+def check_context(steps: list[dict]) -> None:
+    """URLs, window titles and element names end up in exports too."""
+    from urllib.parse import parse_qsl, urlparse
+
+    for s in steps:
+        tgt, ctx = s.get("target") or {}, s.get("context") or {}
+        texts = [tgt.get("url") or "", tgt.get("name") or "", ctx.get("window_title") or ""]
+        if any(EMAIL_RE.search(x) for x in texts):
+            s["flags"].append(flag("email_in_context", "high",
+                                   "An email address appears in the page URL, window title or element name."))
+        url = tgt.get("url")
+        if url:
+            params = [k for k, _ in parse_qsl(urlparse(url).query, keep_blank_values=True)]
+            if any(SENSITIVE_PARAM.search(k) for k in params):
+                s["flags"].append(flag("sensitive_url", "high",
+                                       "The page URL has token/key/password-like parameters."))
+
+
 def redact(steps: list[dict]) -> int:
     """Replace typed text flagged as email/secret. Returns how many steps changed."""
     n = 0
     for s in steps:
         codes = {f["code"] for f in s["flags"]}
+        tgt, ctx = s.get("target") or {}, s.get("context") or {}
+        if "email_in_context" in codes:
+            for d, k in ((tgt, "url"), (tgt, "name"), (ctx, "window_title")):
+                if d.get(k):
+                    d[k] = EMAIL_RE.sub(REDACTED, d[k])
+        if "sensitive_url" in codes and tgt.get("url"):
+            tgt["url"] = tgt["url"].split("?", 1)[0] + "?" + REDACTED
         if s["action"]["type"] == "type" and codes & {"possible_email", "possible_secret"}:
             s["action"]["text"] = REDACTED
             s["action"]["redacted"] = True
@@ -194,6 +239,8 @@ def summarize(steps: list[dict], session_flags: list[dict]) -> dict:
         ("possible_secret", "possible secret"),
         ("possible_email", "typed email"),
         ("redacted_value_on_screen", "redacted value on screen"),
+        ("email_in_context", "email in URL/title"),
+        ("sensitive_url", "sensitive URL"),
         ("email_in_screenshot", "email on screen"),
         ("missing_after_state", "missing after-state"),
         ("masked_input", "masked input"),

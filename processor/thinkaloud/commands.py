@@ -22,11 +22,13 @@ def export_main(argv=None) -> int:
     p.add_argument("--formats", default="dataset,claude")
     p.add_argument("--include-media", action="store_true")
     p.add_argument("--no-zip", action="store_true")
+    p.add_argument("--allow-privacy-flags", action="store_true",
+                   help="export recordings that still have open high-severity privacy flags")
     a = p.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     try:
         r = export_bundle(a.sessions, a.out, formats=a.formats.split(","), include_media=a.include_media,
-                          zip_bundle=not a.no_zip)
+                          zip_bundle=not a.no_zip, allow_privacy_flags=a.allow_privacy_flags)
     except ExportError as e:
         _out({"ok": False, "error": str(e)})
         return 1
@@ -34,7 +36,7 @@ def export_main(argv=None) -> int:
         _out({"ok": False, "error": f"{type(e).__name__}: {e}"})
         return 1
     _out(r)
-    return 0
+    return 0 if r.get("ok") else 1
 
 
 def validate_main(argv=None) -> int:

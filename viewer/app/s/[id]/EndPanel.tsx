@@ -118,6 +118,7 @@ export default function EndPanel({ id, t, edit, aiStatus }: {
         {!!t.review.ai?.runs.length && (
           <div className="small faint" style={{ marginTop: 6 }}>
             {t.review.ai.runs.length} AI run(s); last: {t.review.ai.runs.at(-1)!.kind} · {t.review.ai.runs.at(-1)!.status} · {t.review.ai.runs.at(-1)!.model}
+            {t.review.ai.runs.at(-1)!.note ? ` · ${t.review.ai.runs.at(-1)!.note}` : ""}
           </div>
         )}
       </div>
@@ -154,13 +155,16 @@ function Item({ t, it, edit }: { t: Trajectory; it: ChecklistItem; edit: (fn: (d
               onClick={() => edit((d) => R.setItemVerdict(d, it.id, it.human_verdict === v ? null : v))}>{label}</button>
           ))}
         </div>
-        <span className="small faint">{it.origin === "ai" ? "drafted by AI, accepted by you" : "added by you"}{it.human_verdict_source === "accepted_ai_suggestion" ? " · verdict from AI suggestion" : ""}</span>
+        <span className="small faint">{it.origin === "ai" ? "drafted by AI, accepted by you" : "added by you"}{it.human_verdict_source === "accepted_ai_suggestion" ? " · verdict adopted from an AI check" : ""}</span>
       </div>
+      {R.verdictOutdated(it) && (
+        <div className="alert soft small">Your verdict was given for the earlier wording “{it.verdict_text}”. Check it still applies.</div>
+      )}
       {it.ai_check && (
         <div className={`ai-check ${it.ai_check.verdict}`}>
           <span className="badge">AI</span>{stale && <span className="badge stale">stale</span>} {CHECK_TEXT[it.ai_check.verdict]}
           <div className="ai-expl">{it.ai_check.evidence}</div>
-          {!stale && it.human_verdict_source !== "accepted_ai_suggestion" && (
+          {!stale && R.aiCheckDiffers(it) && (
             <button className="btn ghost" onClick={() => edit((d) => R.acceptAiCheck(d, it.id))}>Use this as my verdict</button>
           )}
         </div>

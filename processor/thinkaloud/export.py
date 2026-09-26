@@ -31,6 +31,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import secrets
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -58,29 +60,100 @@ XDOTOOL = {
     **{f"f{i}": f"F{i}" for i in range(1, 25)},
 }
 MOD = {"ctrl": "ctrl", "alt": "alt", "shift": "shift", "cmd": "super"}
+PUNCT = {"/": "slash", "\\": "backslash", ".": "period", ",": "comma", ";": "semicolon", "'": "apostrophe",
+         "[": "bracketleft", "]": "bracketright", "-": "minus", "=": "equal", "`": "grave", "+": "plus"}
+FRAME_RE = re.compile(r"frames/[\w.-]+\.png")
+REVIEW_STEP_FIELDS = ("reasoning", "reasoning_source", "carried_from", "reasoning_original", "flags",
+                      "dismissed_flags", "edited")
+SEVERITIES = {"high", "warn", "info"}
 
 
 def trajectory_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
+def _step_key(s: dict) -> str:
+    return s.get("uid") or f"t{s.get('t_start')}|{(s.get('action') or {}).get('type')}"
+
+
+def _clean_flag(f) -> dict | None:
+    if not isinstance(f, dict) or not isinstance(f.get("code"), str):
+        return None
+    out = {"code": f["code"][:64], "severity": f.get("severity") if f.get("severity") in SEVERITIES else "warn",
+           "detail": str(f.get("detail", ""))[:1000], "source": "reviewer" if f.get("source") == "reviewer" else "qc"}
+    prov = f.get("provenance")
+    if isinstance(prov, dict):
+        out["provenance"] = {"ai_run_id": str(prov.get("ai_run_id", ""))[:80], "suggestion": str(prov.get("suggestion", ""))[:120]}
+    return out
+
+
+def overlay_review(orig: dict, rev: dict) -> dict:
+    """The processor's trajectory with ONLY review-owned fields taken from the reviewer's file.
+    The reviewer's file is written by the browser, so nothing else in it (actions, image paths,
+    ids) is trusted."""
+    t = json.loads(json.dumps(orig))
+    by_key = {_step_key(s): s for s in rev.get("steps", []) if isinstance(s, dict)}
+    for s in t["steps"]:
+        r = by_key.get(_step_key(s))
+        if not r:
+            continue
+        if isinstance(r.get("reasoning"), str):
+            s["reasoning"] = r["reasoning"][:5000]
+        if r.get("reasoning_source") in ("narrated", "carried", "reviewer", None):
+            s["reasoning_source"] = r.get("reasoning_source")
+        cf = r.get("carried_from")
+        s["carried_from"] = cf if isinstance(cf, int) and 0 <= cf < len(t["steps"]) else None
+        ro = r.get("reasoning_original")
+        if isinstance(ro, dict):
+            s["reasoning_original"] = {"text": str(ro.get("text", ""))[:5000], "source": ro.get("source"),
+                                       "carried_from": ro.get("carried_from")}
+        s["flags"] = [f for f in map(_clean_flag, r.get("flags") or []) if f]
+        s["dismissed_flags"] = [f for f in map(_clean_flag, r.get("dismissed_flags") or []) if f]
+        s["edited"] = bool(r.get("edited"))
+    t["review"] = rev.get("review") if isinstance(rev.get("review"), dict) else t.get("review", {})
+    return t
+
+
+def normalize(t: dict) -> dict:
+    """Schema 0.1 trajectories have no observations: derive the same honest statuses the viewer shows."""
+    for s in t.get("steps", []):
+        if not s.get("observations"):
+            shot = s.get("screenshot")
+            s["observations"] = {
+                "before": ({"status": "at_action", "file": shot, "source": "still",
+                            "reason": "schema 0.1: captured when the action happened"} if shot else
+                           {"status": "missing", "file": None, "reason": "schema 0.1: no screenshot"}),
+                "after": {"status": "missing", "file": None, "reason": "schema 0.1: after-states were not captured"}}
+    if not t.get("final_observation"):
+        f = t.get("final_screenshot")
+        t["final_observation"] = {"status": "ok" if f else "missing", "file": f, "source": "still"}
+    return t
+
+
 def effective_trajectory(session: Path) -> tuple[dict, list[str]]:
-    """The reviewed trajectory if it matches the processor output, else the processor output.
+    """The processor's trajectory with the human review overlaid if the review matches it.
     A review made against an older processor output is an error: its edits would be lost."""
     orig = session / "trajectory.json"
     rev = session / "trajectory.reviewed.json"
     if not orig.exists():
         raise ds.ExportError(f"{session.name}: not processed (no trajectory.json)")
-    t = json.loads(orig.read_text(encoding="utf-8"))
+    t = normalize(json.loads(orig.read_text(encoding="utf-8")))
     notes: list[str] = []
     if rev.exists():
         r = json.loads(rev.read_text(encoding="utf-8"))
-        if r.get("review", {}).get("base_hash") == trajectory_hash(orig):
-            return r, notes
+        if (r.get("review") or {}).get("base_hash") == trajectory_hash(orig):
+            return overlay_review(t, r), notes
         raise ds.ExportError(f"{session.name}: the review was made against an older processing run; "
                              "open it in the viewer once so the edits are carried over, then export again")
     notes.append(f"{session.name}: not reviewed; exported without human decisions")
     return t, notes
+
+
+def open_privacy_flags(t: dict) -> list[str]:
+    out = [f"{f['code']}" for f in t.get("session_flags", []) if f.get("severity") == "high"]
+    for s in t["steps"]:
+        out += [f"step {s.get('uid', s['id'])}: {f['code']}" for f in s.get("flags", []) if f.get("severity") == "high"]
+    return out
 
 
 # ------------------------------------------------------------------ dataset record
@@ -89,9 +162,14 @@ def _action(a: dict) -> dict:
     if t == "click":
         return {"type": "click", "button": a.get("button", "left"), "count": a.get("count", 1),
                 "x": a["x"], "y": a["y"], "modifiers": a.get("mods", [])}
+    if t == "drag":
+        return {"type": "drag", "button": a.get("button", "left"), "x": a["x"], "y": a["y"],
+                "x2": a["x2"], "y2": a["y2"], "modifiers": a.get("mods", [])}
     if t == "type":
         out = {"type": "type", "text": a["text"], "redacted": bool(a.get("redacted")),
                "masked_chars": a.get("masked_chars", 0), "backspaces": a.get("backspaces", 0)}
+        if a.get("keystrokes") and not (a.get("redacted") or a.get("masked_chars")):
+            out["keystrokes"] = a["keystrokes"]
         return out
     if t == "key":
         parts = a["key"].split("+")
@@ -202,7 +280,9 @@ def screenshot_scale(w: int, h: int, long_edge: int = SCREENSHOT_LONG_EDGE) -> f
 
 
 def _key_text(key: str, mods: list[str], problems: list) -> str | None:
-    k = XDOTOOL.get(key.lower(), key if len(key) == 1 else None)
+    k = XDOTOOL.get(key.lower())
+    if k is None and len(key) == 1:
+        k = key if key.isalnum() else PUNCT.get(key)
     if k is None:
         problems.append(("error", f"key {key!r} has no computer-use key name"))
         return None
@@ -210,7 +290,11 @@ def _key_text(key: str, mods: list[str], problems: list) -> str | None:
     if bad:
         problems.append(("error", f"modifier(s) {bad} not supported"))
         return None
-    return "+".join([MOD[m] for m in mods] + [k])
+    text = "+".join([MOD[m] for m in mods] + [k])
+    if not ds.KEY_RE.match(text):  # same rule the validator applies
+        problems.append(("error", f"key combination {text!r} is not a valid key name"))
+        return None
+    return text
 
 
 def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list[tuple[str, dict]], list]:
@@ -245,6 +329,15 @@ def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list
         if mods:
             inp["text"] = "+".join(mods)
         return [(name, inp)], problems
+    if t == "drag":
+        if a.get("button", "left") != "left":
+            problems.append(("error", f"{a.get('button')} button drag has no computer-use equivalent"))
+            return [], problems
+        inp = {"start_coordinate": coord(a["x"], a["y"]), "coordinate": coord(a["x2"], a["y2"])}
+        mods = [MOD[m] for m in a.get("modifiers", []) if m in MOD]
+        if mods:
+            inp["text"] = "+".join(mods)
+        return [("left_click_drag", inp)], problems
     if t == "type":
         if a.get("redacted"):
             problems.append(("error", "typed text was redacted by QC (email/secret); it cannot be represented "
@@ -254,8 +347,11 @@ def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list
             problems.append(("error", "password characters were masked at capture; the typed text is unknown, "
                                       "so this action is omitted"))
             return [], problems
-        if a.get("backspaces"):
-            problems.append(("warning", f"typing included {a['backspaces']} backspace(s); exported as the final text"))
+        if not a["text"]:
+            problems.append(("warning", "text was typed and deleted again; nothing to type (step omitted)"))
+            return [], problems
+        # backspaces inside a typing step only corrected characters typed in the same step
+        # (deleting pre-existing text is its own "key backspace" step), so the final text is faithful
         return [("type", {"text": a["text"]})], problems
     if t == "key":
         text = _key_text(a["key"], a.get("modifiers", []), problems)
@@ -277,7 +373,11 @@ def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list
                 problems.append(("warning", "a zero-delta scroll event was skipped"))
                 continue
             amt = r["amount"]
-            n = max(1, round(amt))
+            if amt < 0.5:
+                problems.append(("error", f"scroll {r['direction']} {amt:g} notch is below the tool's smallest "
+                                          "amount (1 wheel click); not representable"))
+                continue
+            n = int(amt + 0.5)  # half up (Python's round() is half-to-even: round(0.5) == 0)
             if abs(n - amt) > 1e-9:
                 problems.append(("warning", f"scroll {r['direction']} {amt:g} notches rounded to {n} "
                                             "(the tool takes whole wheel clicks)"))
@@ -287,6 +387,8 @@ def claude_calls(step: dict, scale: float, frame: tuple[int, int]) -> tuple[list
             if mods:
                 inp["text"] = "+".join(mods)
             calls.append(("scroll", inp))
+        if not calls and not any(lvl == "error" for lvl, _ in problems):
+            problems.append(("error", "scroll step has no scroll direction"))
         return calls, problems
     problems.append(("error", f"unknown action type {t}"))
     return [], problems
@@ -327,11 +429,11 @@ def claude_record(rec: dict, claude_assets: dict[str, str], scale: float) -> dic
             continue
         uses, results = [], []
         for n, (name, inp) in enumerate(calls):
-            tid = f"toolu_{safe}_{s['uid']}_{n}"
+            tid = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_{n}"
             uses.append({"type": "tool_use", "id": tid, "name": name, "toolset_name": "computer", "input": inp})
             results.append({"type": "tool_result", "tool_use_id": tid, "toolset_name": "computer",
                             "content": [{"type": "text", "text": "OK"}]})
-        shot_id = f"toolu_{safe}_{s['uid']}_shot"
+        shot_id = f"toolu_{safe}_{re.sub(r'[^A-Za-z0-9_-]', '_', s['uid'])}_shot"
         uses.append({"type": "tool_use", "id": shot_id, "name": "screenshot", "toolset_name": "computer", "input": {}})
         after = img(s["observations"]["after"])
         if after:
@@ -373,13 +475,21 @@ def _sha(p: Path) -> str:
     return h.hexdigest()
 
 
+def safe_frame(session: Path, rel) -> Path | None:
+    """Only frames/<name>.png inside this recording, however the path was written."""
+    if not isinstance(rel, str) or not FRAME_RE.fullmatch(rel):
+        return None
+    p = (session / rel).resolve()
+    return p if p.parent == (session / "frames").resolve() and p.is_file() else None
+
+
 def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "claude"),
-                  include_media: bool = False, zip_bundle: bool = True) -> dict:
+                  include_media: bool = False, zip_bundle: bool = True, allow_privacy_flags: bool = False) -> dict:
     formats = [f for f in formats if f in ("dataset", "claude")]
     if not formats:
         raise ds.ExportError("no export format selected")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    name = f"thinkaloud-export-{stamp}-{len(sessions)}rec"
+    name = f"thinkaloud-export-{stamp}-{len(sessions)}rec-{secrets.token_hex(3)}"
     out = Path(out_root) / name
     tmp = Path(out_root) / (name + ".partial")
     if tmp.exists():
@@ -387,17 +497,31 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
     tmp.mkdir(parents=True)
     warnings: list[str] = []
     errors: list[str] = []
+    skipped: list[dict] = []
     recs = []
+    seen_ids: set[str] = set()
     try:
         for session in sessions:
             session = Path(session)
+            rid = session.name  # the folder name, never a value from inside the (reviewer-written) file
             try:
                 t, notes = effective_trajectory(session)
             except ds.ExportError as e:
-                errors.append(str(e))
+                skipped.append({"id": rid, "reason": str(e)})
                 continue
+            if rid in seen_ids or not re.fullmatch(r"[\w.-]+", rid) or rid in (".", ".."):
+                skipped.append({"id": rid, "reason": "duplicate or invalid recording folder name"})
+                continue
+            privacy = open_privacy_flags(t)
+            if privacy and not allow_privacy_flags:
+                skipped.append({"id": rid, "reason": f"{len(privacy)} open privacy flag(s): " + "; ".join(privacy[:6]),
+                                "privacy": privacy})
+                continue
+            if privacy:
+                warnings.append(f"{rid}: exported with {len(privacy)} open privacy flag(s) (confirmed by the user)")
+            seen_ids.add(rid)
             warnings += notes
-            rid = t["session_id"]
+            t["session_id"] = rid
             rdir = tmp / "recordings" / rid
             (rdir / "assets").mkdir(parents=True)
             files = set()
@@ -412,10 +536,10 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
             if fin:
                 files.add(fin)
             assets = {}
-            for f in sorted(files):
-                src = session / f
-                if not src.exists():
-                    errors.append(f"{rid}: referenced image {f} is missing from the session folder")
+            for f in sorted(files, key=str):
+                src = safe_frame(session, f)
+                if src is None:
+                    errors.append(f"{rid}: image reference {str(f)[:80]!r} is not a frame of this recording; not exported")
                     continue
                 dst = f"assets/{Path(f).name}"
                 shutil.copy2(src, rdir / dst)
@@ -455,7 +579,9 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 warnings.append(f"{rid}: no human outcome decision; do not use as a positive demonstration")
             recs.append(entry)
         if not recs:
-            raise ds.ExportError("nothing to export: " + "; ".join(errors))
+            shutil.rmtree(tmp, ignore_errors=True)
+            return {"ok": False, "error": "nothing was exported", "requested": len(sessions), "recordings": 0,
+                    "skipped": skipped, "errors": errors, "warnings": warnings}
         # frozen builds (desktop app) report a .pyc path; engine/build.ps1 puts dataset.py beside it
         shutil.copy2(Path(ds.__file__).with_name("dataset.py"), tmp / "thinkaloud_dataset.py")
         (tmp / "README.md").write_text(ds.BUNDLE_README, encoding="utf-8")
@@ -466,7 +592,7 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 asset_list.append({"path": rel, "bytes": p.stat().st_size, "sha256": _sha(p)})
         manifest = {"format": f"thinkaloud.bundle/{EXPORT_VERSION}", "created_at": stamp, "generator": GENERATOR,
                     "formats": formats, "claude_tool": CLAUDE_TOOL if "claude" in formats else None,
-                    "recordings": recs, "files": asset_list,
+                    "recordings": recs, "skipped": skipped, "files": asset_list,
                     "export_warnings": warnings, "export_errors": errors}
         (tmp / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         report = ds.validate_bundle(tmp)
@@ -485,5 +611,6 @@ def export_bundle(sessions: list[Path], out_root: Path, formats=("dataset", "cla
                 if p.is_file():
                     z.write(p, f"{out.name}/{p.relative_to(out).as_posix()}")
     return {"ok": True, "bundle": str(out), "zip": str(zip_path) if zip_path else None, "formats": formats,
-            "recordings": len(recs), "assets": len(asset_list), "warnings": warnings, "errors": errors,
+            "requested": len(sessions), "recordings": len(recs), "skipped": skipped,
+            "assets": len(asset_list), "warnings": warnings, "errors": errors,
             "validation": {"ok": report["ok"], "errors": report["errors"], "warnings": report["warnings"]}}

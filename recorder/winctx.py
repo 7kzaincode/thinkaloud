@@ -69,8 +69,39 @@ def _describe(hwnd) -> dict | None:
         return None
     pid = wintypes.DWORD(0)
     _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    return {"hwnd": int(hwnd), "title": _title(hwnd), "process": _process_name(pid.value),
+    h = int(hwnd.value if isinstance(hwnd, wintypes.HWND) else hwnd)
+    return {"hwnd": h, "title": _title(hwnd), "process": _process_name(pid.value),
             "pid": int(pid.value)}
+
+
+def foreground_hwnd() -> int | None:
+    """Cheap enough for an input hook: no window messages."""
+    if not IS_WINDOWS:
+        return None
+    try:
+        h = _user32.GetForegroundWindow()
+        return int(h) if h else None
+    except Exception:
+        return None
+
+
+def describe_hwnd(hwnd: int | None) -> dict | None:
+    if not IS_WINDOWS or not hwnd:
+        return None
+    try:
+        return _describe(wintypes.HWND(hwnd))
+    except Exception:
+        return None
+
+
+def double_click_size_px() -> list[int]:
+    """The system double-click rectangle (SM_CXDOUBLECLK, SM_CYDOUBLECLK)."""
+    if not IS_WINDOWS:
+        return [4, 4]
+    try:
+        return [int(_user32.GetSystemMetrics(36)), int(_user32.GetSystemMetrics(37))]
+    except Exception:
+        return [4, 4]
 
 
 def foreground_window() -> dict | None:

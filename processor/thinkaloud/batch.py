@@ -11,6 +11,10 @@ crash or bad input in one recording cannot take down the others. State is persis
   <session>/processing.log    output of every attempt
   <jobs>/<job_id>.json        job summary: counts, per-recording states, heartbeat
 
+Claiming: a recording is claimed with an exclusive lock file (processing.lock, created with
+O_EXCL, touched by the heartbeat), so two jobs never process it at once; a lock whose
+heartbeat stopped for STALE_S is taken over.
+
 Idempotent: a recording whose inputs hash to the same value as its last successful run
 (processing.json done_input_hash, and trajectory.json exists) is skipped unless --force. Outputs are written
 atomically by the pipeline, so a failed or interrupted attempt leaves the previous
@@ -34,6 +38,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .fsutil import write_json_atomic
+
 STALE_S = 30.0
 HEARTBEAT_S = 2.0
 PROCESSOR_VERSION = "0.2"
@@ -55,9 +61,7 @@ def age_s(iso: str | None) -> float:
 
 
 def write_json(p: Path, data) -> None:
-    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(tmp, p)
+    write_json_atomic(p, data)  # unique temp name + retries on Windows file locks
 
 
 def read_json(p: Path):
@@ -108,6 +112,8 @@ class Job:
         self.sessions, self.jobs_dir, self.id = sessions, jobs_dir, job_id
         self.concurrency, self.retries, self.force, self.model, self.runner = concurrency, retries, force, model, runner
         self.lock = threading.Lock()
+        self.file_lock = threading.RLock()   # serializes read-modify-write of processing.json files
+        self.errors: list[str] = []
         self.state = {s.name: {"id": s.name, "state": "queued", "attempts": 0, "error": None} for s in sessions}
         self.running: set[Path] = set()
         self.stop = threading.Event()
@@ -117,11 +123,39 @@ class Job:
     # ---- persistence ------------------------------------------------------------
     def status(self, session: Path, **fields) -> None:
         p = session / "processing.json"
-        cur = read_json(p) or {}
-        cur.update(fields, job_id=self.id, heartbeat_at=now_iso())
-        write_json(p, cur)
         with self.lock:
             self.state[session.name].update({k: v for k, v in fields.items() if k in ("state", "attempts", "error")})
+        try:
+            with self.file_lock:
+                cur = read_json(p) or {}
+                cur.update(fields, job_id=self.id, heartbeat_at=now_iso())
+                write_json(p, cur)
+        except OSError as e:  # never let a status write abort the job
+            self.errors.append(f"{session.name}: could not write status: {e}")
+
+    def claim(self, session: Path) -> bool:
+        lock = session / "processing.lock"
+        for _ in range(2):
+            try:
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, json.dumps({"job_id": self.id, "at": now_iso()}).encode())
+                os.close(fd)
+                return True
+            except FileExistsError:
+                try:
+                    age = time.time() - lock.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                if age <= STALE_S:
+                    return False
+                lock.unlink(missing_ok=True)  # the holder stopped heart-beating: take over
+        return False
+
+    def release(self, session: Path) -> None:
+        try:
+            (session / "processing.lock").unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def save(self, final_state: str | None = None) -> None:
         with self.lock:
@@ -130,27 +164,45 @@ class Job:
                     "force": self.force, "state": final_state or "running", "started_at": self.started,
                     "heartbeat_at": now_iso(), "finished_at": now_iso() if final_state else None,
                     "total": len(vals), "done": sum(v["state"] in ("done", "skipped") for v in vals),
-                    "failed": sum(v["state"] == "failed" for v in vals), "sessions": vals}
+                    "failed": sum(v["state"] == "failed" for v in vals), "sessions": vals,
+                    "errors": self.errors[-20:]}
         write_json(self.file, data)
 
     def heartbeat(self) -> None:
         while not self.stop.wait(HEARTBEAT_S):
-            self.save()
-            with self.lock:
-                running = list(self.running)
-            for s in running:
-                cur = read_json(s / "processing.json") or {}
-                if cur.get("job_id") == self.id and cur.get("state") == "running":
-                    cur["heartbeat_at"] = now_iso()
-                    write_json(s / "processing.json", cur)
+            try:
+                self.save()
+                with self.lock:
+                    running = set(self.running)
+                    waiting = [s for s in self.sessions if self.state[s.name]["state"] in ("queued", "running")]
+                for s in waiting:  # queued ones too, or the viewer would call them interrupted
+                    with self.file_lock:
+                        cur = read_json(s / "processing.json") or {}
+                        if cur.get("job_id") == self.id and cur.get("state") in ("queued", "running"):
+                            cur["heartbeat_at"] = now_iso()
+                            write_json(s / "processing.json", cur)
+                    if s in running:
+                        try:
+                            os.utime(s / "processing.lock")
+                        except OSError:
+                            pass
+            except Exception as e:  # a failed beat must not stop the heartbeat
+                self.errors.append(f"heartbeat: {type(e).__name__}: {e}")
 
     # ---- work ---------------------------------------------------------------------
     def one(self, session: Path) -> None:
-        prev = read_json(session / "processing.json") or {}
-        if prev.get("state") == "running" and prev.get("job_id") != self.id and age_s(prev.get("heartbeat_at")) < STALE_S:
+        if not self.claim(session):
+            prev = read_json(session / "processing.json") or {}
             with self.lock:
                 self.state[session.name].update(state="skipped", error=f"already being processed by job {prev.get('job_id')}")
             return
+        try:
+            self._one(session)
+        finally:
+            self.release(session)
+
+    def _one(self, session: Path) -> None:
+        prev = read_json(session / "processing.json") or {}
         try:
             ih = input_hash(session)
         except OSError as e:
@@ -212,7 +264,9 @@ class Job:
         recover(self.jobs_dir)
         for s in self.sessions:
             cur = read_json(s / "processing.json") or {}
-            if not (cur.get("state") == "running" and age_s(cur.get("heartbeat_at")) < STALE_S):
+            lock = s / "processing.lock"
+            held = lock.exists() and time.time() - lock.stat().st_mtime <= STALE_S
+            if not held:
                 cur.update(state="queued", job_id=self.id, heartbeat_at=now_iso(), error=None)
                 write_json(s / "processing.json", cur)
         self.save()

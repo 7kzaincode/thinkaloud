@@ -13,6 +13,10 @@ const net = require("net");
 const path = require("path");
 const readline = require("readline");
 
+// A separate profile (single-instance lock, stored API key) for tests or side-by-side runs.
+// Must run before anything reads app.getPath("userData").
+if (process.env.THINKALOUD_USER_DATA) app.setPath("userData", process.env.THINKALOUD_USER_DATA);
+
 const DEV = !app.isPackaged;
 const REPO = path.resolve(__dirname, "..");
 const RES = DEV ? REPO : process.resourcesPath;
@@ -44,6 +48,7 @@ function runEngine(args, onEvent) {
   const env = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" };
   if (!DEV) env.HF_HOME = path.join(DATA, "models"); // whisper model cache
   const child = spawn(cmd, argv, { cwd: DATA, env, windowsHide: true });
+  child.on("error", (e) => onEvent({ event: "error", message: `could not start the engine: ${e.message}` }));
   let stderr = "";
   child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-4000)));
   readline.createInterface({ input: child.stdout }).on("line", (line) => {
@@ -386,6 +391,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on("second-instance", restoreMain);
 
 app.whenReady().then(async () => {
+  // First run: the engine runs with cwd = DATA, and spawn fails if the folder doesn't exist yet.
+  fs.mkdirSync(SESSIONS, { recursive: true });
   createMainWindow();
   try {
     const url = await startViewer();

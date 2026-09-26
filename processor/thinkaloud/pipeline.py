@@ -55,10 +55,7 @@ def read_meta(session: Path) -> dict:
         raise InputError(f"meta.json is not valid JSON ({e.msg})")
 
 
-def write_json_atomic(path: Path, data) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+from .fsutil import write_json_atomic  # noqa: E402  (unique temp names, Windows lock retries)
 
 
 def process(session: Path, transcript: Path | None = None, model: str = "base.en",
@@ -148,6 +145,8 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
         s["flags"] = []
         s["screenshot"] = (s["observations"]["before"] or {}).get("file")  # 0.1-compatible field
     qc.check_steps(steps, segments, pauses=pauses, legacy=legacy)
+    qc.check_context(steps)
+    meta["_has_end_marker"] = any(e["type"] == "marker" and e.get("name") == "end" for e in events)
     if ocr:
         try:
             qc.ocr_emails(steps, session)

@@ -90,6 +90,36 @@ def test_interrupted_run_is_recovered(library):
 def test_live_run_by_another_job_is_not_touched(library):
     (library / "rec-a" / "processing.json").write_text(json.dumps(
         {"state": "running", "job_id": "other", "heartbeat_at": batch.now_iso(), "attempts": 1}))
+    (library / "rec-a" / "processing.lock").write_text(json.dumps({"job_id": "other"}))
     run(library)
     assert status(library, "rec-a")["job_id"] == "other"
     assert not (library / "rec-a" / "trajectory.json").exists()
+    assert (library / "rec-a" / "processing.lock").exists()          # not ours to remove
+
+
+def test_stale_lock_is_taken_over_and_locks_are_released(library):
+    import os, time
+    lock = library / "rec-a" / "processing.lock"
+    lock.write_text("{}")
+    old = time.time() - 120
+    os.utime(lock, (old, old))                                        # its holder died two minutes ago
+    run(library)
+    assert status(library, "rec-a")["state"] == "done"
+    assert not any(p.name == "processing.lock" for p in library.rglob("*"))
+
+
+def test_queued_recordings_keep_heart_beating(library, monkeypatch):
+    """Review A #5 / B #5: queued entries went stale and showed as interrupted."""
+    monkeypatch.setattr(batch, "HEARTBEAT_S", 0.2)
+    job = batch.Job(batch.discover([library]), library.parent / "jobs", "hb", 1, 0, False, "base.en", "local")
+    job.jobs_dir.mkdir()
+    for s in job.sessions:
+        batch.write_json(s / "processing.json", {"state": "queued", "job_id": "hb", "heartbeat_at": "2020-01-01T00:00:00+00:00"})
+    import threading
+    t = threading.Thread(target=job.heartbeat, daemon=True)
+    t.start()
+    import time
+    time.sleep(0.6)
+    job.stop.set()
+    for s in job.sessions:
+        assert batch.age_s(status(library, s.name)["heartbeat_at"]) < 5

@@ -12,7 +12,7 @@ import EndPanel from "./EndPanel";
 import ExportDialog from "./ExportDialog";
 
 type Sel = number | "end";
-type SaveState = { kind: "clean" | "dirty" | "saving" | "saved" | "error" | "conflict"; at?: string; msg?: string };
+type SaveState = { kind: "clean" | "dirty" | "saving" | "saved" | "error"; at?: string; msg?: string };
 export type AiStatus = { configured: boolean; model: string; reason?: string } | null;
 
 export default function Reviewer({ id, initial, hadReview, rebased }: { id: string; initial: Trajectory; hadReview: boolean; rebased: boolean }) {
@@ -48,26 +48,77 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
   }, []);
 
   // ---- persistence: autosave to trajectory.reviewed.json -----------------------
-  useEffect(() => {
-    if (!touched.current) return;
-    setSave({ kind: "dirty" });
-    const h = setTimeout(async () => {
+  // One save in flight at a time (a later save can never be overwritten by an earlier one),
+  // flushed before export and when leaving the page. If the recording was reprocessed while
+  // the page was open, the server rebases these edits onto the new steps and we adopt that.
+  const latest = useRef(t);
+  latest.current = t;
+  const dirty = useRef(false);
+  const inflight = useRef<Promise<void> | null>(null);
+  const adopting = useRef(false);
+
+  const flush = useCallback(async (): Promise<void> => {
+    while (inflight.current) await inflight.current;
+    if (!dirty.current) return;
+    dirty.current = false;
+    const snapshot = latest.current;
+    const run = (async () => {
       setSave({ kind: "saving" });
-      const body: Trajectory = { ...t, review: { ...t.review, reviewed_at: new Date().toISOString() } };
+      const body: Trajectory = { ...snapshot, review: { ...snapshot.review, reviewed_at: new Date().toISOString() } };
       const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: true,
       }).catch(() => null);
-      if (r?.status === 409) {
-        const j = await r.json().catch(() => ({}));
-        setSave({ kind: "conflict", msg: j.error });
-      } else {
-        setSave(r?.ok ? { kind: "saved", at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } : { kind: "error", msg: r ? `HTTP ${r.status}` : "network error" });
+      if (!r?.ok) {
+        dirty.current = true;
+        setSave({ kind: "error", msg: r ? `HTTP ${r.status}` : "network error" });
+        return;
       }
-    }, 600);
+      const j = await r.json().catch(() => ({}));
+      const at = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (j.rebased && j.trajectory) {
+        adopting.current = true;
+        setT(j.trajectory);
+        const n = j.trajectory.review?.rebased?.dropped?.length ?? 0;
+        setSave({ kind: "saved", at, msg: `recording was reprocessed; your edits were carried over${n ? ` (${n} no longer apply)` : ""}` });
+      } else {
+        setT((cur) => (cur.review.base_hash === j.base_hash ? cur : { ...cur, review: { ...cur.review, base_hash: j.base_hash } }));
+        setSave(dirty.current ? { kind: "dirty" } : { kind: "saved", at });
+      }
+    })();
+    inflight.current = run;
+    try {
+      await run;
+    } finally {
+      inflight.current = null;
+    }
+    if (dirty.current) await flush();
+  }, [id]);
+
+  useEffect(() => {
+    if (adopting.current) {
+      adopting.current = false;
+      return;
+    }
+    if (!touched.current) return;
+    dirty.current = true;
+    setSave({ kind: "dirty" });
+    const h = setTimeout(() => void flush(), 600);
     return () => clearTimeout(h);
-  }, [t, id]);
+  }, [t, flush]);
+
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (dirty.current || inflight.current) {
+        void flush();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      if (dirty.current) void flush(); // leaving the page inside the app: save what's pending
+    };
+  }, [flush]);
 
   const resetReview = async () => {
     if (!confirm("Discard all review edits (reasoning, flags, checklist, AI suggestions, outcome) and reload the processor output?")) return;
@@ -160,13 +211,12 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
           </div>
         </div>
         <div className="rv-actions">
-          <span className={`save-state ${["dirty", "error", "conflict"].includes(save.kind) ? "dirty" : ""}`} aria-live="polite">
+          <span className={`save-state ${["dirty", "error"].includes(save.kind) ? "dirty" : ""}`} aria-live="polite" title={save.msg}>
             {save.kind === "clean" && "No edits yet"}
             {save.kind === "dirty" && "Unsaved changes"}
             {save.kind === "saving" && "Saving…"}
-            {save.kind === "saved" && `Review saved${save.at ? " " + save.at : ""}`}
-            {save.kind === "error" && `Save failed (${save.msg})`}
-            {save.kind === "conflict" && <>Recording was reprocessed · <button className="linkish" onClick={() => location.reload()}>reload</button></>}
+            {save.kind === "saved" && `Review saved${save.at ? " " + save.at : ""}${save.msg ? " · " + save.msg : ""}`}
+            {save.kind === "error" && <>Save failed ({save.msg}) · <button className="linkish" onClick={() => { dirty.current = true; void flush(); }}>retry</button></>}
           </span>
           <div className="seg" role="group" aria-label="Outcome (your decision)">
             {([["pass", "Task done"], ["fail", "Not done"], [null, "Undecided"]] as const).map(([v, label]) => (
@@ -232,7 +282,7 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
           </div>
         </aside>
       </div>
-      {exportOpen && <ExportDialog ids={[id]} onClose={() => setExportOpen(false)} dirty={save.kind === "dirty" || save.kind === "saving"} />}
+      {exportOpen && <ExportDialog ids={[id]} onClose={() => setExportOpen(false)} flush={flush} saveFailed={save.kind === "error"} />}
     </div>
   );
 }

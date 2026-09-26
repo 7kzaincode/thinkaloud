@@ -10,11 +10,16 @@ Boundaries are driven by events, not timers, except where a pause is the signal:
     `action.runs`, so down-then-up is two runs, never a misleading net amount.
   * type: printable keys (and backspace, which edits the text) typed with gaps of
     at most `type_gap_s` in the same window form one step. Keys the recorder
-    masked (password fields) stay masked.
+    masked (password fields) stay masked. A step with corrections keeps its raw
+    `keystrokes` ("helo⌫lo"). A Backspace that would delete text that was in the
+    field before this step (nothing typed left to delete) is a separate
+    "key backspace" step, so deleting existing text is never lost or turned into typing.
   * key: Enter/Tab and keys with Ctrl/Alt/Win/Shift held (e.g. "ctrl+c") are their
     own steps. Other special keys repeat-merge within `repeat_gap_s` ("repeat": n).
   * click: one step per press. Presses of the same button within the system
-    double-click time and a few pixels merge ("count": 2 or 3).
+    double-click time and double-click rectangle merge ("count": 2 or 3), never across
+    a pause. A press followed by a release elsewhere (recorder "release" event) is a
+    "drag" step with start (x, y) and end (x2, y2).
 
 Coordinates in actions are frame pixels (screen minus the captured monitor's
 origin); the original screen coordinates are kept as screen_x / screen_y.
@@ -32,7 +37,7 @@ class SegmentConfig:
     scroll_pause_s: float = 5.0
     repeat_gap_s: float = 1.0
     double_click_s: float = 0.5
-    double_click_px: int = 6
+    double_click_px: int = 2  # half the system double-click rectangle (SM_CXDOUBLECLK 4 px)
 
 
 SUBMIT_KEYS = ("enter", "tab")
@@ -90,6 +95,7 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
     events = sorted(enumerate(events), key=lambda p: (p[1]["t"], p[1].get("seq", p[0])))
     steps: list[dict] = []
     cur: dict | None = None
+    barrier = False  # a pause/stop happened since the last step: no double-click merging across it
 
     def flush():
         nonlocal cur
@@ -99,7 +105,7 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
                 a["runs"] = scroll_runs(a["events"])
                 a["net_dx"] = round(sum(ev["dx"] for ev in a["events"]), 4)
                 a["net_dy"] = round(sum(ev["dy"] for ev in a["events"]), 4)
-            if a["type"] != "type" or a["text"]:
+            if a["type"] != "type" or a["text"] or a.get("keystrokes"):
                 steps.append(cur)
             cur = None
 
@@ -116,11 +122,30 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
     for idx, e in events:
         t, kind = e["t"], e["type"]
         if kind == "marker":
-            if e.get("name") in ("end", "pause"):
+            if e.get("name") in ("end", "pause", "resume"):
                 flush()
+                barrier = True
             continue
 
-        if _is_text_key(e):
+        if kind == "release":
+            prev = steps[-1] if steps and cur is None else None
+            if prev and prev["action"]["type"] == "click" and prev["action"]["button"] == e.get("button", "left") \
+                    and prev["last_seq"] == e.get("seq", idx) - 1 and prev["action"].get("count", 1) == 1:
+                a = prev["action"]
+                a.update(type="drag", x2=e["x"] - ox, y2=e["y"] - oy, screen_x2=e["x"], screen_y2=e["y"])
+                prev["t_end"] = t
+                prev["last_seq"] = e.get("seq", idx)
+                prev["n_events"] += 1
+            continue
+
+        typing = cur is not None and cur["action"]["type"] == "type"
+        leading_backspace = (e["type"] == "key" and e["key"] == "backspace" and not e.get("mods")
+                             and not (typing and cur["action"]["text"]
+                                      and t - cur["t_end"] <= cfg.type_gap_s
+                                      and cur["wkey"] == _window_key(e)))
+        if kind in ("scroll",) or (kind == "key" and _is_text_key(e)):
+            barrier = False
+        if _is_text_key(e) and not leading_backspace:
             if (cur and cur["action"]["type"] == "type" and t - cur["t_end"] <= cfg.type_gap_s
                     and cur["wkey"] == _window_key(e)):
                 extend(e, idx)
@@ -128,9 +153,11 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
                 flush()
                 cur = new(e, idx, {"type": "type", "text": ""})
             a = cur["action"]
+            a["_keys"] = a.get("_keys", "") + ("⌫" if e["key"] == "backspace" else e["key"])
             if e["key"] == "backspace":
                 a["text"] = a["text"][:-1]
                 a["backspaces"] = a.get("backspaces", 0) + 1
+                a["keystrokes"] = a["_keys"]
             else:
                 a["text"] += e["key"]
                 if e.get("masked"):
@@ -160,6 +187,7 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
             continue
 
         if kind == "key":
+            barrier = False
             name = "+".join(e.get("mods", []) + [e["key"]])
             if (cur and cur["action"]["type"] == "key" and cur["action"]["key"] == name
                     and t - cur["t_end"] <= cfg.repeat_gap_s and name not in SUBMIT_KEYS
@@ -175,7 +203,8 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
 
         if kind == "click":
             flush()
-            prev = steps[-1] if steps else None
+            prev = steps[-1] if steps and not barrier else None
+            barrier = False
             x, y = e["x"] - ox, e["y"] - oy
             button = e.get("button", "left")
             if (prev and prev["action"]["type"] == "click" and prev["action"]["button"] == button
@@ -199,6 +228,8 @@ def merge_events(events: list[dict], origin: tuple[int, int] = (0, 0),
 
     flush()
 
+    for st in steps:
+        st["action"].pop("_keys", None)
     out = []
     for i, s in enumerate(steps):
         rec = {"id": i, "uid": f"s{s['first_seq']:06d}", "t_start": round(s["t_start"], 4),

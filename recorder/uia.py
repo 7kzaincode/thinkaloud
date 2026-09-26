@@ -35,6 +35,10 @@ DOCUMENT = 50030
 VALUE_PATTERN = 10002
 MAX_TARGET_HOPS = 4     # text/image inside a button: climb at most this far
 MAX_DOCUMENT_HOPS = 40  # climbing to the page's Document element for the URL
+CONTAINERS = {50025, 50026, 50030, 50032, 50033}  # custom, group, document, window, pane
+DESCEND_BUDGET_S = 0.15
+DESCEND_MAX_DEPTH = 20
+DESCEND_MAX_NODES = 400
 
 
 def _rect(r) -> list[int] | None:
@@ -117,11 +121,44 @@ class UIA:
             cur, hops = self._parent(cur), hops + 1
         return None, "no_document"
 
+    def _descend(self, el, x: int, y: int):
+        """Chromium sometimes answers a hit test with its Document root (seen right after the
+        window was activated). Walk down by bounding rectangle to the deepest on-screen element
+        containing the point. Bounded by time and node count; returns None if nothing deeper."""
+        deadline = time.perf_counter() + DESCEND_BUDGET_S
+        cur, nodes = el, 0
+        for _depth in range(DESCEND_MAX_DEPTH):
+            best, best_area = None, None
+            try:
+                child = self.walker.GetFirstChildElement(cur)
+            except Exception:
+                break
+            while child and nodes < DESCEND_MAX_NODES and time.perf_counter() < deadline:
+                nodes += 1
+                try:
+                    r = child.CurrentBoundingRectangle
+                    if not child.CurrentIsOffscreen and r.left <= x < r.right and r.top <= y < r.bottom:
+                        area = (r.right - r.left) * (r.bottom - r.top)
+                        if best is None or area <= best_area:
+                            best, best_area = child, area
+                    child = self.walker.GetNextSiblingElement(child)
+                except Exception:
+                    break
+            if best is None:
+                break
+            cur = best
+        return cur if cur is not el else None
+
     def at_point(self, x: int, y: int) -> dict:
         el = self.auto.ElementFromPoint(self.mod.tagPOINT(int(x), int(y)))
         if not el:
             return {"status": "not_found"}
         hit = self._props(el)
+        method = "point"
+        if hit["control_type_id"] in CONTAINERS:
+            deeper = self._descend(el, int(x), int(y))
+            if deeper is not None:
+                el, hit, method = deeper, self._props(deeper), "descend"
         target_el, target = el, hit
         cur, hops = el, 0
         while hit["control_type_id"] not in INTERACTIVE and hops < MAX_TARGET_HOPS:
@@ -135,7 +172,7 @@ class UIA:
                 break
         url, url_status = self._document_url(target_el)
         out = {"status": "ok", **target, "hit": hit if target_el is not el else None,
-               "url_status": url_status}
+               "hit_method": method, "url_status": url_status}
         if url:
             out["url"] = url
         return out

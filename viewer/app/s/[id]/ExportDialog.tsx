@@ -4,6 +4,8 @@ import { useState } from "react";
 
 interface ExportResult {
   ok: boolean;
+  requested?: number;
+  skipped?: { id: string; reason: string; privacy?: string[] }[];
   bundle?: string;
   zip?: string;
   download?: string;
@@ -16,22 +18,26 @@ interface ExportResult {
   error?: string;
 }
 
-export default function ExportDialog({ ids, onClose, dirty }: { ids: string[]; onClose: () => void; dirty: boolean }) {
+export default function ExportDialog({ ids, onClose, flush, saveFailed }: {
+  ids: string[]; onClose: () => void; flush?: () => Promise<void>; saveFailed?: boolean;
+}) {
   const [dataset, setDataset] = useState(true);
   const [claude, setClaude] = useState(true);
   const [media, setMedia] = useState(false);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ExportResult | null>(null);
 
-  const run = async () => {
+  const run = async (allowPrivacy = false) => {
     setBusy(true);
     setRes(null);
     try {
+      if (flush) await flush(); // export the edits on screen, not an older save
       const r = await fetch("/api/export", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, formats: [dataset && "dataset", claude && "claude"].filter(Boolean), include_media: media }),
+        body: JSON.stringify({ ids, formats: [dataset && "dataset", claude && "claude"].filter(Boolean), include_media: media,
+          allow_privacy_flags: allowPrivacy }),
       });
-      setRes(await r.json());
+      setRes(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
     } catch (e) {
       setRes({ ok: false, error: String(e) });
     } finally {
@@ -39,12 +45,15 @@ export default function ExportDialog({ ids, onClose, dirty }: { ids: string[]; o
     }
   };
 
+  const skipped = res?.skipped ?? [];
+  const privacySkipped = skipped.filter((s) => s.privacy?.length);
   const validationErrors = res?.validation?.errors ?? [];
   const contentProblems = res?.errors ?? [];           // actions that can't be represented faithfully
   const allWarnings = [...(res?.warnings ?? []), ...(res?.validation?.warnings ?? [])];
-  const headline = !res?.ok ? "" : validationErrors.length ? "Exported, but the bundle failed validation"
+  const count = res?.requested && res.requested !== res.recordings ? `${res.recordings} of ${res.requested} recordings exported. ` : "";
+  const headline = !res?.ok ? "" : count + (validationErrors.length ? "The bundle failed validation"
     : contentProblems.length ? "Exported and validated, with steps that could not be represented"
-    : allWarnings.length ? "Exported and validated, with warnings" : "Exported and validated";
+    : allWarnings.length ? "Exported and validated, with warnings" : "Exported and validated");
 
   return (
     <div className="modal-bg" role="dialog" aria-modal="true" aria-label="Export" onClick={onClose}>
@@ -57,10 +66,10 @@ export default function ExportDialog({ ids, onClose, dirty }: { ids: string[]; o
           <span><b>Claude computer-use</b> · actions as <code>computer_toolset_20260801</code> tool calls with screenshot results; narration kept separately</span></label>
         <label className="opt"><input type="checkbox" checked={media} onChange={(e) => setMedia(e.target.checked)} />
           <span>Include replay video with narration audio (larger)</span></label>
-        {dirty && <div className="alert soft">Your latest edits are still saving; the export uses what is saved.</div>}
+        {saveFailed && <div className="alert">Your latest edits could not be saved; the export would not include them.</div>}
         <div className="modal-actions">
           <button className="btn ghost" onClick={onClose}>Close</button>
-          <button className="btn primary" disabled={busy || (!dataset && !claude)} onClick={run}>{busy ? "Exporting and validating…" : "Export"}</button>
+          <button className="btn primary" disabled={busy || (!dataset && !claude)} onClick={() => run(false)}>{busy ? "Exporting and validating…" : "Export"}</button>
         </div>
         {res && (
           <div className={`export-result ${res.ok ? (validationErrors.length ? "bad" : contentProblems.length || allWarnings.length ? "warn" : "ok") : "bad"}`} aria-live="polite">
@@ -71,7 +80,19 @@ export default function ExportDialog({ ids, onClose, dirty }: { ids: string[]; o
                 <div className="small">Bundle validation: {validationErrors.length ? `${validationErrors.length} error(s)` : "passed (checksums, schema, screenshot timing, coordinates, references)"}</div>
                 {res.download && <a className="btn" href={res.download}>Download .zip</a>}
               </>
-            ) : <b>Export failed: {res.error}</b>}
+            ) : <b>{res.error === "nothing was exported" ? "Nothing was exported" : `Export failed: ${res.error}`}</b>}
+            {skipped.length > 0 && (
+              <div className="small">
+                <b>Skipped ({skipped.length}):</b>
+                <ul className="errs">{skipped.map((s, i) => <li key={i}>{s.id}: {s.reason}</li>)}</ul>
+                {privacySkipped.length > 0 && (
+                  <button className="btn" disabled={busy} onClick={() => run(true)}
+                    title="Open privacy flags mean typed emails/passwords or emails in URLs may be visible in the screenshots">
+                    I checked the privacy flags: export anyway
+                  </button>
+                )}
+              </div>
+            )}
             {validationErrors.length > 0 && <ul className="errs">{validationErrors.slice(0, 30).map((e, i) => <li key={i}>{e}</li>)}</ul>}
             {contentProblems.length > 0 && (
               <div className="small">

@@ -214,7 +214,8 @@ def build_messages(req: dict) -> list[dict]:
         s.pop("input_hash", None)
     for i in data.get("items", []):
         i.pop("input_hash", None)
-    rec = f"<recording>\n{json.dumps(data, ensure_ascii=False, indent=1)}\n</recording>"
+    # "<" is escaped so text inside the recording can't close the <recording> tag
+    rec = "<recording>\n" + json.dumps(data, ensure_ascii=False, indent=1).replace("<", "\\u003c") + "\n</recording>"
     kind = req["kind"]
     if kind == "narration":
         ask = ("For each step, judge whether its reasoning text explains WHY the expert took that action "
@@ -289,7 +290,10 @@ def run_review(session: Path, kind: str, trajectory: dict, client=None) -> dict:
             import anthropic
 
             client = anthropic.Anthropic(timeout=cfg["timeout"], max_retries=cfg["max_retries"])
-        messages = build_messages(req)
+        try:
+            messages = build_messages(req)
+        except OSError as e:  # includes PIL.UnidentifiedImageError
+            raise ReviewError("bad_image", f"the final screenshot could not be read: {e}")
         last: ReviewError | None = None
         for _attempt in range(2):  # one retry if the output doesn't validate
             text = _call(client, cfg, kind, messages)
