@@ -43,7 +43,7 @@ from .fsutil import write_json_atomic
 
 STALE_S = 30.0
 HEARTBEAT_S = 2.0
-PROCESSOR_VERSION = "0.2"
+PROCESSOR_VERSION = "0.3"  # 0.3: narration split into sentences and matched per word
 INPUT_FILES = ("events.jsonl", "meta.json", "frames/stills.jsonl", "video_frames.jsonl")
 MEDIA_FILES = ("audio.wav", "screen.mkv")
 

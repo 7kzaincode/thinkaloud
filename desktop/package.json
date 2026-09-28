@@ -1,7 +1,7 @@
 {
   "name": "thinkaloud",
   "productName": "thinkaloud",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Record, process and review think-aloud computer-use trajectories",
   "author": "Zain",
   "private": true,

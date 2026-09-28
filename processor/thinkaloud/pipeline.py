@@ -12,12 +12,12 @@ import os
 from pathlib import Path
 
 from . import qc
-from .align import align
+from .align import align, phrases
 from .describe import describe, target_reliable
 from .media import build_playback
 from .observations import assign, extract_video_frames, legacy_assign, load_stills, load_video_frames
 from .steps import SegmentConfig, merge_events
-from .transcribe import LEGACY_MODEL, default_model, load_transcript, transcribe
+from .transcribe import LEGACY_MODEL, TRANSCRIBE_METHOD, context_prompt, default_model, load_transcript, transcribe
 
 SCHEMA_VERSION = "0.2"
 SESSION_SCHEMA_V02 = "thinkaloud.session/0.2"
@@ -59,7 +59,7 @@ from .fsutil import write_json_atomic  # noqa: E402  (unique temp names, Windows
 
 
 def _transcript(session: Path, supplied: Path | None, model: str, language: str | None, offset_s: float,
-                log) -> tuple[list[dict], dict]:
+                log, prompt: str | None = None) -> tuple[list[dict], dict]:
     cached, info_path, audio = session / "transcript.json", session / "transcript.meta.json", session / "audio.wav"
     info = None
     if info_path.exists():
@@ -73,16 +73,20 @@ def _transcript(session: Path, supplied: Path | None, model: str, language: str 
         segments = load_transcript(supplied)
         info = {"source": "file", "file": Path(supplied).name}
         log(f"transcript: {len(segments)} segments from {supplied}")
-    elif cached.exists() and (not audio.exists() or info.get("source") == "file" or info.get("model") == model):
+    elif cached.exists() and (not audio.exists() or info.get("source") == "file"
+                              or (info.get("model") == model and info.get("method") == TRANSCRIBE_METHOD)):
         segments = load_transcript(cached)
         log(f"transcript: {len(segments)} segments (cached transcript.json, {info.get('model') or 'from a file'})")
     elif audio.exists():
         if cached.exists():  # made by another model: keep the old one next to it, just in case
             write_json_atomic(session / "transcript.previous.json", {"info": info, "segments": load_transcript(cached)})
-            log(f"re-transcribing: the cached transcript was made with {info.get('model')}, not {model}")
+            why = (f"was made with {info.get('model')}, not {model}" if info.get("model") != model
+                   else "was made without word timings")
+            log(f"re-transcribing: the cached transcript {why}")
         log(f"transcribing audio.wav with faster-whisper ({model})...")
-        segments = transcribe(audio, offset_s, model, language=language, log=log)
-        info = {"source": "whisper", "model": model, "language": "en" if model.endswith(".en") else language}
+        segments = transcribe(audio, offset_s, model, language=language, log=log, prompt=prompt)
+        info = {"source": "whisper", "model": model, "method": TRANSCRIBE_METHOD,
+                "language": "en" if model.endswith(".en") else language, "context": bool(prompt)}
         log(f"transcript: {len(segments)} segments")
     else:
         segments, info = [], {"source": "none"}
@@ -107,7 +111,8 @@ def process(session: Path, transcript: Path | None = None, model: str | None = N
     # 1. transcript: explicit file > cached transcript.json (if made by this model, or supplied
     #    as a file) > whisper on audio.wav
     segments, transcript_info = _transcript(session, transcript, model or default_model(), language,
-                                            audio_meta.get("offset_s") or 0.0, log)
+                                            audio_meta.get("offset_s") or 0.0, log,
+                                            context_prompt(meta.get("task", ""), meta.get("success_criteria", "")))
 
     # 2. steps
     cfg = config or SegmentConfig()
@@ -170,8 +175,8 @@ def process(session: Path, transcript: Path | None = None, model: str | None = N
         final_obs = {"status": "missing", "file": None, "reason": "end capture file is missing"}
         final = None
 
-    # 4. narration alignment
-    align(segments, steps)
+    # 4. narration alignment: sentences (split where the speaker paused for an action), then steps
+    segments = align(phrases(segments, steps), steps)
 
     # 5. quality checks
     for s in steps:

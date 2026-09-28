@@ -19,9 +19,11 @@ const VERDICT: Record<string, string> = {
   missing: "No explanation for this action",
 };
 
-export default function StepPanel({ t, index, step, edit, onJump, aiStatus }: {
+export default function StepPanel({ t, index, step, edit, onJump, aiStatus, onPlayFrom }: {
   t: Trajectory; index: number; step: Step; edit: (fn: (d: Trajectory) => void) => void;
   onJump: (i: number) => void; aiStatus: AiStatus;
+  /** play this step's clip from a given time (a narration chip) */
+  onPlayFrom?: (time: number) => void;
 }) {
   const [newFlag, setNewFlag] = useState("");
   const key = R.stepKey(step);
@@ -85,7 +87,12 @@ export default function StepPanel({ t, index, step, edit, onJump, aiStatus }: {
         />
         {!!step.narration?.length && (
           <div className="timing">
-            {step.narration.map((n) => (
+            {step.narration.map((n) => onPlayFrom ? (
+              <button key={n.segment_id} className={`chip ${n.timing}`} title={`Play: “${segs.get(n.segment_id)?.text ?? ""}”`}
+                onClick={() => onPlayFrom(Math.max(0, n.t_start - 0.2))}>
+                ▶ {fmtTime(n.t_start)} · {TIMING[n.timing]}
+              </button>
+            ) : (
               <span key={n.segment_id} className={`chip ${n.timing}`} title={segs.get(n.segment_id)?.text}>
                 {fmtTime(n.t_start)} · {TIMING[n.timing]}
               </span>

@@ -47,8 +47,8 @@ recorder ─► sessions/<id>/ ─► processor ─► trajectory.json + playbac
 
 Two Windows executables are built into `desktop/dist/` (both unsigned: SmartScreen shows "More info" → "Run anyway"):
 
-- `thinkaloud Setup 0.2.0.exe`: installer with Start menu and desktop shortcuts.
-- `thinkaloud-portable-0.2.0.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
+- `thinkaloud Setup 0.2.1.exe`: installer with Start menu and desktop shortcuts.
+- `thinkaloud-portable-0.2.1.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
   folder on each start, so it takes a few seconds longer to open).
 
 Rebuild both with `cd desktop && npm run dist` (installer and portable), or run from source (below). Then:
@@ -74,9 +74,21 @@ is uploaded. **Settings → Speech recognition** picks the model:
 | Balanced | `small.en` | 465 MB | 8 s |
 | Accurate (default) | `large-v3-turbo` | 1.6 GB | 14 s |
 
-Fast mishears a lot with a noisy or scratchy microphone or background audio; Accurate is the default.
-`transcript.meta.json` records which model made a recording's transcript, so after switching models, **Process
-selected** re-transcribes the recordings you pick (the previous transcript is kept as `transcript.previous.json`), and
+Fast mishears a lot with a noisy or scratchy microphone or background audio; Accurate is the default. The task and
+"done when" text are given to the model as context, which supplies names ("Pearson", "SFO") and punctuation (without
+it, large models tend to return long lowercase runs with no sentence breaks), and a segment that only repeats that
+context is dropped. Every word gets its own timing.
+
+**Matching narration to steps.** The words are cut into phrases: after each sentence, and wherever the speaker paused
+while an action happened. A phrase goes to the action it announces: the first step that starts between the phrase's
+start and 5 s after it ends, or the typing it was said during; otherwise it's a comment on the previous step
+(`after_action`). Neighbouring phrases about the same step, said the same way, are joined into one narration entry, so a
+step's **Why** holds whole sentences, and a step without narration of its own carries the previous step's (within 6 s).
+Stray Alt/Ctrl/Shift/Windows presses are never a target and aren't flagged for missing reasoning.
+
+`transcript.meta.json` records which model and method made a recording's transcript, so after switching models, **Process
+selected** re-transcribes the recordings you pick (the previous transcript is kept as `transcript.previous.json`;
+transcripts made before word timings existed are redone the same way), and
 exports say which model made the text (`recording.transcript`). A transcript supplied as a file (`--transcript`, the
 bundled sample) is never replaced. `THINKALOUD_WHISPER_MODEL` overrides the setting (CLI, Docker, admins);
 `--model` does the same per run, `--language auto` detects the language instead of assuming English.
@@ -137,11 +149,15 @@ On a **review page**:
 - **Before / After / Replay** (`b`, `a`, `space`). Each image says when it was captured relative to the
   action and what its status means. A green box marks the UI element that was clicked when UI Automation
   identified it; the ring marks the click. Missing images say why they are missing.
-- **Replay** plays the screen video with the narration. **Replay** or `space` plays just the selected step, from a
-  second before the action to just after its after-state, then pauses; `space` again replays it, `←`/`→` in the
-  replay play the previous/next step, and the video's own play button keeps going through the recording (the
-  selection follows it, "follow the replay"). Shortcuts work wherever focus is except in text fields. The timeline
-  shows narration, steps, idle gaps and a playhead; clicking it seeks.
+- **Replay** plays the screen video with the narration. **Replay** or `space` plays just the selected step, then
+  pauses: everything said about it (before, during and after the action; for a step that carries an earlier step's
+  reasoning, from that sentence) plus the action and its after-state. `space` again replays it, `←`/`→` in the replay
+  play the previous/next step, and the video's own play button keeps going through the recording (the selection
+  follows it, "follow the replay"). The **▶** chips under **Why** play from the moment each part was said. Shortcuts
+  work wherever focus is except in text fields.
+- The **timeline** shows narration, steps, idle gaps and a playhead (clicking it seeks). The selected step's stretch
+  of the recording is shaded, its narration highlighted (carried narration fainter), and its time is labelled at the
+  bottom.
 - **What they did** describes the action ("Clicked the Add to Cart button") with the raw coordinates and
   UI Automation metadata one click away. **Why** is the reasoning: from narration (with chips saying whether
   it was said before, during or after the action), carried from an earlier step, or written by you. Your
@@ -383,8 +399,11 @@ no dropped frames; audio clock drift 22.7 ppm.
 - **Before images can be up to one frame period old** (≈250 ms at 4 fps), so a hover menu that appeared just
   before a click may be missing from the before image. Raise `--fps` for more precise before-states (more CPU).
 - **UI Automation is best effort.** Apps that don't implement it (games, some Java/Electron apps without
-  accessibility enabled, remote desktops) give `pane`/`custom` or nothing; when a hit test lands on a container
-  (document, pane, group) the recorder walks down to the deepest element under the point within 150 ms. Lookups on
+  accessibility enabled, remote desktops) give `pane`/`custom` or nothing. The Arc browser on Windows exposes only its
+  window (a XAML `InputSiteWindowClass` pane), never the page's buttons and fields, so clicks in Arc show coordinates;
+  QC notes this (`click_targets_unknown`). Chrome and Edge expose page elements, so record browser tasks in one of
+  them. When a hit test lands on a container (document, pane, group) the recorder walks down to the deepest element
+  under the point within 150 ms. Lookups on
   unresponsive apps are bounded (600 ms) and a result that arrives after 500 ms is not used for descriptions.
   URLs are only recorded when the page's Document element exposes one.
 - **Password masking depends on the app reporting a password field.** Custom password widgets that don't set

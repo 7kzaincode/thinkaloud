@@ -13,15 +13,20 @@ function worst(s: Step): "high" | "warn" | "info" | null {
 }
 
 export default function Timeline({
-  t, sel, onSelect, playhead, activeIdx, onSeek,
+  t, sel, onSelect, playhead, activeIdx, onSeek, clip,
 }: {
   t: Trajectory; sel: number | "end"; onSelect: (s: number | "end") => void;
   playhead?: number | null; activeIdx?: number | null; onSeek?: (t: number) => void;
+  /** the stretch that belongs to the selected step (what "play this step" plays) */
+  clip?: { start: number; end: number } | null;
 }) {
   const dur = Math.max(t.duration_s ?? 0, ...t.steps.map((s) => s.t_end), ...t.transcript.map((g) => g.t_end), 1);
   const pct = (x: number) => `${(x / dur) * 100}%`;
   const selStep = typeof sel === "number" ? t.steps[sel] : null;
   const selSegs = new Set(selStep?.transcript_ids ?? []);
+  // a step without narration of its own shows the narration it carries (from an earlier step), fainter
+  const carriedSegs = new Set(selStep?.reasoning_source === "carried" && selStep.carried_from != null
+    ? t.steps.find((s) => s.id === selStep.carried_from)?.transcript_ids ?? [] : []);
   const gaps: [number, number][] = [];
   t.steps.reduce((prevEnd, s) => {
     if (s.t_start - prevEnd > IDLE) gaps.push([prevEnd, s.t_start]);
@@ -40,6 +45,15 @@ export default function Timeline({
         {onSeek && <rect x="0" y="0" width="100%" height="56" fill="transparent" style={{ cursor: "crosshair" }} onClick={seekFromEvent}>
           <title>Click to seek the replay</title>
         </rect>}
+        {/* the selected step: its stretch of the recording, and when the action happened */}
+        {clip && (
+          <g pointerEvents="none">
+            <rect x={pct(clip.start)} width={pct(Math.max(clip.end - clip.start, dur * 0.004))} y="0" height="56"
+              fill="var(--accent)" opacity="0.1" />
+            <line x1={pct(clip.start)} x2={pct(clip.start)} y1="0" y2="56" stroke="var(--accent)" strokeOpacity="0.35" />
+            <line x1={pct(clip.end)} x2={pct(clip.end)} y1="0" y2="56" stroke="var(--accent)" strokeOpacity="0.35" />
+          </g>
+        )}
         <defs>
           <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="6" stroke="var(--warn)" strokeWidth="1.5" opacity="0.45" />
@@ -49,8 +63,8 @@ export default function Timeline({
         <line x1="0" x2="100%" y1="9" y2="9" stroke="var(--rule)" />
         {t.transcript.map((g) => (
           <rect key={g.id} x={pct(g.t_start)} width={pct(Math.max(g.t_end - g.t_start, dur * 0.004))} y="4" height="10" rx="2"
-            fill={selSegs.has(g.id) ? "var(--accent)" : g.step_id === null ? "var(--faint)" : "var(--muted)"}
-            opacity={selSegs.has(g.id) ? 1 : 0.45}>
+            fill={selSegs.has(g.id) || carriedSegs.has(g.id) ? "var(--accent)" : g.step_id === null ? "var(--faint)" : "var(--muted)"}
+            opacity={selSegs.has(g.id) ? 1 : carriedSegs.has(g.id) ? 0.5 : 0.45}>
             <title>{`${fmtTime(g.t_start)}  “${g.text}”`}</title>
           </rect>
         ))}
@@ -79,6 +93,11 @@ export default function Timeline({
             </g>
           );
         })}
+        {selStep && (
+          <g pointerEvents="none">
+            <line x1={pct(selStep.t_start)} x2={pct(selStep.t_start)} y1="14" y2="56" stroke="var(--accent)" strokeWidth="1.5" />
+          </g>
+        )}
         {/* end state */}
         <g className="tick" onClick={() => onSelect("end")}>
           <line x1="100%" x2="100%" y1="18" y2="52" stroke={sel === "end" ? "var(--accent)" : "var(--ink)"} strokeWidth="2" />
@@ -91,8 +110,15 @@ export default function Timeline({
             <circle cx={pct(playhead)} cy="2" r="3" fill="var(--ok)" />
           </g>
         )}
+        {selStep && (
+          <text x={pct(selStep.t_start)} y="63" fontSize="10" fill="var(--accent)" fontFamily="var(--font-mono)"
+            textAnchor={selStep.t_start / dur < 0.06 ? "start" : selStep.t_start / dur > 0.94 ? "end" : "middle"}
+            paintOrder="stroke" stroke="var(--paper)" strokeWidth="6">
+            #{String(selStep.id).padStart(2, "0")} · {fmtTime(selStep.t_start)}
+          </text>
+        )}
         {/* axis */}
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+        {[0, 0.25, 0.5, 0.75, 1].filter((f) => !selStep || Math.abs(f - selStep.t_start / dur) > 0.07).map((f) => (
           <text key={f} x={`${f * 100}%`} y="63" fontSize="10" fill="var(--faint)"
             textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"} fontFamily="var(--font-mono)">
             {fmtTime(dur * f)}
@@ -101,6 +127,7 @@ export default function Timeline({
       </svg>
       <div className="tl-legend">
         <span><i style={{ background: "var(--muted)", opacity: 0.45 }} />narration</span>
+        <span><i style={{ background: "var(--accent)", opacity: 0.25 }} />selected step (what space plays)</span>
         <span><i style={{ background: "var(--ink)" }} />step</span>
         {playhead != null && <span><i style={{ background: "var(--ok)" }} />replay position</span>}
         <span><i style={{ background: "var(--warn)" }} />needs attention</span>
