@@ -37,3 +37,8 @@ desktop/node_modules/
 desktop/dist/
 engine/build/
 engine/dist/
+
+# app settings and deleted recordings (dev data folder = repo root)
+/settings.json
+/trash/
+transcript.previous.json

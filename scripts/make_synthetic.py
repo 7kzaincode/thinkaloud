@@ -377,6 +377,9 @@ def main() -> None:
     (OUT / "transcript.json").write_text(json.dumps(
         [{"id": i, "t_start": a, "t_end": b, "text": x} for i, (a, b, x) in enumerate(TRANSCRIPT)],
         indent=2), encoding="utf-8")
+    # a scripted transcript, not speech-to-text: never re-transcribe it (the audio is synthetic)
+    (OUT / "transcript.meta.json").write_text(json.dumps({"source": "file", "file": "make_synthetic.py"}, indent=2),
+                                              encoding="utf-8")
     samples = int((DURATION + 1) * 16000)
     meta = {
         "schema": "thinkaloud.session/0.2",

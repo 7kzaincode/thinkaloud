@@ -82,6 +82,10 @@ Pre-existing failures: none.
 | C45 | Final build: settings, frozen engine, Docker | `settings_check.mjs`; frozen `export --allow-privacy-for` + `validate`; Docker batch twice | settings 9/9; bundle validates, no `subject` key anywhere in it; Docker 4 done / 1 failed in 11 s, re-run 3 s |
 | C46 | Installer on the final code | `electron-builder --win` | `thinkaloud Setup 0.1.0.exe`, 210 MB |
 | C47 | Native journey and E2E on the final code | `node scripts/app_journey.mjs`, `python scripts/e2e_capture.py` | **not run**. The first attempts on 4a356cc were stopped by the input guard before any input was injected, because the owner was using the computer (Discord, Explorer in front); the journey had already started recording, and its test recording (about 30 s of the screen) was deleted at the end as always. Both scripts now refuse to start unless the machine has been idle for 120 s (`--require-idle`, `THINKALOUD_REQUIRE_IDLE`); the machine was not idle during a 25-minute wait. The last native runs passed on 0d74c8b (E2E 27/27, journey 17/17: C37, C38; the committed reports are from those runs). Recorder changes since then (UI Automation answers only add masking, dedicated focus worker, sequential client start, pill warning) are covered by unit tests with fake and real UI Automation (C42, C44) |
+| C48 | Speech models: speed and robustness | faster-whisper on 70 s of synthetic narration (Windows text-to-speech), clean and with noise plus a tonal bed at 5 dB SNR, int8 on a 12-core CPU | base.en 3 s, small.en 8 s, large-v3-turbo 14 s. On the noisy copy base.en misheard "bag" as "back" and "from them isn't" as "from the visit"; small.en and large-v3-turbo were unchanged. Text-to-speech is far easier than a real voice on a poor mic, so this shows speed, not the real accuracy gap |
+| C49 | Transcript cache per model; editing task / "done when" | `processor/tests/test_speech_details.py` (10) | pass: another model re-transcribes (old one kept), same model reuses, transcripts cached before models were recorded count as base.en, supplied transcripts are never replaced, the batch hash includes the model; renaming updates meta (first text kept), trajectory, QC flags and summary (same as a full reprocess), moves an up-to-date review onto the new version, and is refused while processing |
+| C50 | Delete / restore / permanent delete; model setting | `viewer/lib/manage.test.ts` (6) | pass: samples, recordings being recorded or processed are refused; restoring onto an existing id is refused; purge can't leave the trash folder; environment > Settings > default |
+| C51 | In the browser (dev viewer on throwaway copies of the synthetic sample) | rename from the list and from the review page; delete → Undo; Delete selected → Recently deleted → Delete permanently; Settings model switch; Process selected; replay keys | all as expected: the review page saved a pending outcome before renaming and showed no false "reprocessed" pill; the batch job ran with large-v3-turbo and logged "re-transcribing: the cached transcript was made with base.en"; space with the Before button or the "follow the replay" checkbox focused played the step (checkbox not toggled); the step clip paused at 7.37 s (step ends 6.4 s, next step 7.4 s); `→` played the next step |
 
 ## Review findings
 
@@ -216,6 +220,10 @@ high, 2 medium (overlapping A and B). Fixed afterwards (see the commit after 4a3
 
 Found while fixing (not in either review): the test bench was not actually topmost (C30), and the pipeline read the
 system double-click time but not the box size (A17).
+
+Found while testing the replay change (C51): the check that pauses a step clip ran on animation frames, which stop
+while the window isn't drawn (minimized, covered, hidden), so the clip played on; it now runs on a timer and the
+video's time updates.
 
 ## Blocked checks
 

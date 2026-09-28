@@ -181,7 +181,10 @@ export default function RecordPage() {
           <div className="spinner" />
           <h1>Processing</h1>
           <p className="lede">{phase.message}</p>
-          <small className="hint">The first run downloads the speech model (~150 MB). After that it takes a few seconds.</small>
+          <small className="hint">
+            The first time a speech model is used it is downloaded once (up to 1.6 GB for Accurate; see Settings).
+            After that, transcribing takes a fraction of the recording&apos;s length.
+          </small>
         </div>
       )}
     </main>

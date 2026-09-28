@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSession, processingStatus, sessionDir } from "@/lib/sessions";
+import { getSession, ownSessionDir, processingStatus, sessionDir } from "@/lib/sessions";
 import Reviewer from "./Reviewer";
 
 export const dynamic = "force-dynamic";
@@ -25,5 +25,5 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       </main>
     );
   }
-  return <Reviewer id={id} initial={s.trajectory} hadReview={s.reviewed} rebased={s.rebased} />;
+  return <Reviewer id={id} initial={s.trajectory} hadReview={s.reviewed} rebased={s.rebased} readonly={!(await ownSessionDir(id))} />;
 }

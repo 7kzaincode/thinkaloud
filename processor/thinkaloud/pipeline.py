@@ -17,7 +17,7 @@ from .describe import describe, target_reliable
 from .media import build_playback
 from .observations import assign, extract_video_frames, legacy_assign, load_stills, load_video_frames
 from .steps import SegmentConfig, merge_events
-from .transcribe import load_transcript, transcribe
+from .transcribe import LEGACY_MODEL, default_model, load_transcript, transcribe
 
 SCHEMA_VERSION = "0.2"
 SESSION_SCHEMA_V02 = "thinkaloud.session/0.2"
@@ -58,9 +58,43 @@ def read_meta(session: Path) -> dict:
 from .fsutil import write_json_atomic  # noqa: E402  (unique temp names, Windows lock retries)
 
 
-def process(session: Path, transcript: Path | None = None, model: str = "base.en",
+def _transcript(session: Path, supplied: Path | None, model: str, language: str | None, offset_s: float,
+                log) -> tuple[list[dict], dict]:
+    cached, info_path, audio = session / "transcript.json", session / "transcript.meta.json", session / "audio.wav"
+    info = None
+    if info_path.exists():
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            info = None
+    if info is None and cached.exists():
+        info = {"source": "whisper", "model": LEGACY_MODEL}  # cached before models were recorded
+    if supplied:
+        segments = load_transcript(supplied)
+        info = {"source": "file", "file": Path(supplied).name}
+        log(f"transcript: {len(segments)} segments from {supplied}")
+    elif cached.exists() and (not audio.exists() or info.get("source") == "file" or info.get("model") == model):
+        segments = load_transcript(cached)
+        log(f"transcript: {len(segments)} segments (cached transcript.json, {info.get('model') or 'from a file'})")
+    elif audio.exists():
+        if cached.exists():  # made by another model: keep the old one next to it, just in case
+            write_json_atomic(session / "transcript.previous.json", {"info": info, "segments": load_transcript(cached)})
+            log(f"re-transcribing: the cached transcript was made with {info.get('model')}, not {model}")
+        log(f"transcribing audio.wav with faster-whisper ({model})...")
+        segments = transcribe(audio, offset_s, model, language=language, log=log)
+        info = {"source": "whisper", "model": model, "language": "en" if model.endswith(".en") else language}
+        log(f"transcript: {len(segments)} segments")
+    else:
+        segments, info = [], {"source": "none"}
+        log("transcript: none (no audio.wav and no --transcript)")
+    write_json_atomic(cached, segments)
+    write_json_atomic(info_path, info)
+    return segments, info
+
+
+def process(session: Path, transcript: Path | None = None, model: str | None = None,
             ocr: bool = False, redact: bool = True, log=print, playback: bool = True,
-            config: SegmentConfig | None = None) -> dict:
+            config: SegmentConfig | None = None, language: str | None = "en") -> dict:
     session = Path(session)
     meta = read_meta(session)
     events = read_events(session)
@@ -70,22 +104,10 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
     audio_meta = meta.get("audio") or {}
     pauses = (meta.get("input") or {}).get("pauses") or []
 
-    # 1. transcript: explicit file > cached transcript.json > whisper on audio.wav
-    cached = session / "transcript.json"
-    if transcript:
-        segments = load_transcript(transcript)
-        log(f"transcript: {len(segments)} segments from {transcript}")
-    elif cached.exists():
-        segments = load_transcript(cached)
-        log(f"transcript: {len(segments)} segments (cached transcript.json)")
-    elif (session / "audio.wav").exists():
-        log(f"transcribing audio.wav with faster-whisper ({model})...")
-        segments = transcribe(session / "audio.wav", audio_meta.get("offset_s") or 0.0, model)
-        log(f"transcript: {len(segments)} segments")
-    else:
-        segments = []
-        log("transcript: none (no audio.wav and no --transcript)")
-    write_json_atomic(cached, segments)
+    # 1. transcript: explicit file > cached transcript.json (if made by this model, or supplied
+    #    as a file) > whisper on audio.wav
+    segments, transcript_info = _transcript(session, transcript, model or default_model(), language,
+                                            audio_meta.get("offset_s") or 0.0, log)
 
     # 2. steps
     cfg = config or SegmentConfig()
@@ -190,6 +212,7 @@ def process(session: Path, transcript: Path | None = None, model: str = "base.en
         "duration_s": meta.get("duration_s"),
         "source": {"session_schema": meta.get("schema", "thinkaloud.session/0.1"),
                    "recorder_version": meta.get("recorder_version"), "legacy": legacy,
+                   "transcript": transcript_info,
                    "segmentation": {"type_gap_s": cfg.type_gap_s, "scroll_pause_s": cfg.scroll_pause_s,
                                     "repeat_gap_s": cfg.repeat_gap_s, "double_click_s": cfg.double_click_s,
                                     "double_click_px": cfg.double_click_px}},

@@ -3,7 +3,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
 import { startEngine } from "@/lib/engine";
-import { DATA_DIR, SAFE_ID, sessionDir } from "@/lib/sessions";
+import { DATA_DIR, SAFE_ID, processingInFlight, sessionDir } from "@/lib/sessions";
+import { speechModel } from "@/lib/speech";
 import { guard } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   for (const id of ids) {
     const d = await sessionDir(id);
     if (!d) continue;
-    if (await inFlight(d)) busy.push(id);
+    if (await processingInFlight(d)) busy.push(id);
     else dirs.push(d);
   }
   if (!dirs.length) {
@@ -32,25 +33,12 @@ export async function POST(req: Request) {
   }
   await fs.mkdir(JOBS(), { recursive: true });
   const jobId = `b${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomBytes(2).toString("hex")}`;
-  const args = ["batch", ...dirs, "--jobs", JOBS(), "--concurrency", String(concurrency), "--job-id", jobId, "--runner", "local"];
+  const args = ["batch", ...dirs, "--jobs", JOBS(), "--concurrency", String(concurrency), "--job-id", jobId, "--runner", "local",
+    "--model", (await speechModel()).id];
   if (body?.force) args.push("--force");
   const started = await startEngine(args);
   if ("error" in started) return NextResponse.json({ error: started.error }, { status: 500 });
   return NextResponse.json({ job_id: jobId, pid: started.pid, busy });
-}
-
-/** Queued or running with a live heartbeat, or locked by a live processor (desktop app or batch job). */
-async function inFlight(dir: string): Promise<boolean> {
-  const fresh = (ms: number) => Date.now() - ms <= 30_000;
-  try {
-    if (fresh((await fs.stat(path.join(/*turbopackIgnore: true*/ dir, "processing.lock"))).mtimeMs)) return true;
-  } catch { /* no lock */ }
-  try {
-    const st = JSON.parse(await fs.readFile(path.join(/*turbopackIgnore: true*/ dir, "processing.json"), "utf-8"));
-    return (st.state === "queued" || st.state === "running") && fresh(Date.parse(st.heartbeat_at ?? 0));
-  } catch {
-    return false;
-  }
 }
 
 export async function GET(req: Request) {

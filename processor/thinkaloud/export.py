@@ -288,7 +288,9 @@ def dataset_record(t: dict, assets: dict[str, str], media_asset: str | None) -> 
                       "trajectory_schema": t.get("schema_version"),
                       "session_schema": (t.get("source") or {}).get("session_schema"),
                       "recorder_version": (t.get("source") or {}).get("recorder_version"),
-                      "legacy": bool((t.get("source") or {}).get("legacy", t.get("schema_version") == "0.1"))},
+                      "legacy": bool((t.get("source") or {}).get("legacy", t.get("schema_version") == "0.1")),
+                      # how the narration was turned into text: {"source": "whisper", "model": ...} or a supplied file
+                      "transcript": (t.get("source") or {}).get("transcript")},
         "coordinate_space": {"frame_width": size[0], "frame_height": size[1],
                              "frame_origin_on_screen": cs.get("frame_origin_on_screen", [0, 0]),
                              "monitor_dpi_scale": cs.get("monitor_dpi_scale"),

@@ -31,6 +31,8 @@ export interface DesktopBridge {
   /** null = automatic (Anthropic if it has a key, else Gemini) */
   setAiProvider(provider: AiProvider | null): Promise<boolean>;
   openSessionsFolder(): Promise<void>;
+  /** open one recording's folder in File Explorer */
+  showRecording?(id: string): Promise<void>;
   info(): Promise<{ sessions: string; dev: boolean; version: string }>;
   onMeter(cb: (e: EngineEvent) => void): () => void;
   onRecorder(cb: (e: EngineEvent) => void): () => void;

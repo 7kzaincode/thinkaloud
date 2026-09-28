@@ -47,8 +47,8 @@ recorder ─► sessions/<id>/ ─► processor ─► trajectory.json + playbac
 
 Two Windows executables are built into `desktop/dist/` (both unsigned: SmartScreen shows "More info" → "Run anyway"):
 
-- `thinkaloud Setup 0.1.0.exe`: installer with Start menu and desktop shortcuts.
-- `thinkaloud-portable-0.1.0.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
+- `thinkaloud Setup 0.2.0.exe`: installer with Start menu and desktop shortcuts.
+- `thinkaloud-portable-0.2.0.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
   folder on each start, so it takes a few seconds longer to open).
 
 Rebuild both with `cd desktop && npm run dist` (installer and portable), or run from source (below). Then:
@@ -60,8 +60,26 @@ Rebuild both with `cd desktop && npm run dist` (installer and portable), or run 
    its clicks are not recorded. While paused nothing is captured.
 3. When you stop, the recording is processed and opens for review.
 
-Recordings are saved in `Documents\thinkaloud\sessions`, exports in `Documents\thinkaloud\exports`, the speech
-model (~150 MB, first run) in `Documents\thinkaloud\models`.
+Recordings are saved in `Documents\thinkaloud\sessions`, exports in `Documents\thinkaloud\exports`, deleted
+recordings in `Documents\thinkaloud\trash` (until you empty it), speech models in `Documents\thinkaloud\models`.
+
+### Speech recognition
+
+Narration is transcribed on this computer with [faster-whisper](https://github.com/SYSTRAN/faster-whisper); nothing
+is uploaded. **Settings → Speech recognition** picks the model:
+
+| Choice | Model | Download (once) | Speed on a 12-core CPU, 70 s of speech |
+|---|---|---|---|
+| Fast | `base.en` | 145 MB | 3 s |
+| Balanced | `small.en` | 465 MB | 8 s |
+| Accurate (default) | `large-v3-turbo` | 1.6 GB | 14 s |
+
+Fast mishears a lot with a noisy or scratchy microphone or background audio; Accurate is the default.
+`transcript.meta.json` records which model made a recording's transcript, so after switching models, **Process
+selected** re-transcribes the recordings you pick (the previous transcript is kept as `transcript.previous.json`), and
+exports say which model made the text (`recording.transcript`). A transcript supplied as a file (`--transcript`, the
+bundled sample) is never replaced. `THINKALOUD_WHISPER_MODEL` overrides the setting (CLI, Docker, admins);
+`--model` does the same per run, `--language auto` detects the language instead of assuming English.
 
 ### From source (development)
 
@@ -100,7 +118,15 @@ The same command runs natively: `python -m thinkaloud batch sessions --jobs jobs
 
 The **Recordings** page lists every recording with processing status, steps, how many steps have their
 own narration (count and %), narration words per step, open flags, the human decision and checklist
-progress, and warnings. Filter, sort, select, **Process selected** (with a worker count), **Export selected**.
+progress, and warnings. Filter, sort, select, **Process selected** (with a worker count), **Export selected**,
+**Delete selected**.
+
+Each recording has **Edit** (change the task and "done when"; the text as first recorded is kept in `meta.json`
+under `as_recorded`, the task-related QC flags are recomputed, and a review in progress stays attached), **Show in
+folder** (desktop app) and **Delete**. Deleting moves the recording, with its review, to **Recently deleted** at
+the bottom of the page (**Undo** right after, **Restore** any time later); only **Delete permanently** or **Empty
+Recently deleted** erase it. Recordings that are still being recorded or processed can't be edited or deleted, and
+the bundled sample is read-only.
 
 Denominators: *narrated* = steps with at least one narration segment of their own (carried or
 reviewer-written reasoning does not count) ÷ all steps; *words / step* = narration words attached to steps
@@ -111,9 +137,11 @@ On a **review page**:
 - **Before / After / Replay** (`b`, `a`, `space`). Each image says when it was captured relative to the
   action and what its status means. A green box marks the UI element that was clicked when UI Automation
   identified it; the ring marks the click. Missing images say why they are missing.
-- **Replay** plays the screen video with the narration. The timeline shows narration, steps, idle gaps and a
-  playhead; clicking the timeline seeks, selecting a step seeks to half a second before it, and while
-  playing the selection follows the replay ("follow the replay").
+- **Replay** plays the screen video with the narration. **Replay** or `space` plays just the selected step, from a
+  second before the action to just after its after-state, then pauses; `space` again replays it, `←`/`→` in the
+  replay play the previous/next step, and the video's own play button keeps going through the recording (the
+  selection follows it, "follow the replay"). Shortcuts work wherever focus is except in text fields. The timeline
+  shows narration, steps, idle gaps and a playhead; clicking it seeks.
 - **What they did** describes the action ("Clicked the Add to Cart button") with the raw coordinates and
   UI Automation metadata one click away. **Why** is the reasoning: from narration (with chips saying whether
   it was said before, during or after the action), carried from an earlier step, or written by you. Your
@@ -121,8 +149,8 @@ On a **review page**:
 - **End state**: a checklist derived from "done when", your verdict per item, notes, and the outcome. If you
   reword an item after deciding it, the page says the verdict was given for the earlier wording.
 - Edits autosave to `trajectory.reviewed.json` (one save in flight at a time; pending edits are saved before an
-  export and when leaving the page, and the browser warns if a save is still pending). The processor's
-  `trajectory.json` is never modified by review, and the server merges only review-owned fields (reasoning,
+  export, a rename and when leaving the page, and the browser warns if a save is still pending). The processor's
+  `trajectory.json` is never modified by review (only **Edit** changes its task text and task flags), and the server merges only review-owned fields (reasoning,
   flags, dismissals, the review block) onto it, so a crafted review file can't change actions or image paths.
   If a recording is reprocessed, even while the page is open, your review is carried over to the new steps
   (matching step ids, or start time + action type for older recordings; dismissals match by flag code) and

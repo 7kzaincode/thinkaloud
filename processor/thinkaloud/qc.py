@@ -293,6 +293,20 @@ def redact_narration(steps: list[dict], segments: list[dict]) -> int:
     return n
 
 
+TASK_FLAG_CODES = ("missing_task", "missing_success_criteria")
+
+
+def task_flags(meta: dict) -> list[dict]:
+    """Flags about the task text itself (also recomputed when a recording's details are edited)."""
+    out = []
+    if not meta.get("task"):
+        out.append(flag("missing_task", "warn", "No task description was recorded."))
+    if not meta.get("success_criteria"):
+        out.append(flag("missing_success_criteria", "warn",
+                        "No 'done when' criteria: a reviewer can't judge the outcome."))
+    return out
+
+
 def check_session(meta: dict, steps: list[dict], segments: list[dict],
                   final_screenshot: str | None, legacy: bool = False) -> list[dict]:
     out = []
@@ -321,11 +335,7 @@ def check_session(meta: dict, steps: list[dict], segments: list[dict],
         out.append(flag("legacy_recording", "info",
                         "Recorded with recorder 0.1: no after-state screenshots, no video, "
                         "no click targets; before-screenshots were grabbed at action time."))
-    if not meta.get("task"):
-        out.append(flag("missing_task", "warn", "No task description was recorded."))
-    if not meta.get("success_criteria"):
-        out.append(flag("missing_success_criteria", "warn",
-                        "No 'done when' criteria: a reviewer can't judge the outcome."))
+    out += task_flags(meta)
     if not final_screenshot:
         out.append(flag("no_final_screenshot", "warn", "No end-state screenshot to verify the outcome."))
     if not segments:

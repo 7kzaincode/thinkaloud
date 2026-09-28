@@ -10,12 +10,15 @@ import Stage, { type View } from "./Stage";
 import StepPanel from "./StepPanel";
 import EndPanel from "./EndPanel";
 import ExportDialog from "./ExportDialog";
+import { EditDetailsDialog } from "../../RecordingDialogs";
 
 type Sel = number | "end";
 type SaveState = { kind: "clean" | "dirty" | "saving" | "saved" | "error"; at?: string; msg?: string };
 export type AiStatus = { configured: boolean; provider?: string; provider_name?: string; model: string; reason?: string } | null;
 
-export default function Reviewer({ id, initial, hadReview, rebased }: { id: string; initial: Trajectory; hadReview: boolean; rebased: boolean }) {
+export default function Reviewer({ id, initial, hadReview, rebased, readonly }: {
+  id: string; initial: Trajectory; hadReview: boolean; rebased: boolean; readonly?: boolean;
+}) {
   const [t, setT] = useState<Trajectory>(initial);
   const [sel, setSel] = useState<Sel>(() => {
     const i = initial.steps.findIndex((s) => s.flags.length);
@@ -27,6 +30,7 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
   const [playing, setPlaying] = useState(false);
   const [follow, setFollow] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus>(null);
   const touched = useRef(false); // only autosave after a real edit
   const video = useRef<HTMLVideoElement>(null);
@@ -175,9 +179,14 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
     return idx;
   }, [playhead, t.steps]);
 
+  // Replaying a step plays just that step: from a moment before the action to just after its
+  // after-state, then pauses. Playing on from there (the video's own play button) is continuous.
+  const [clip, setClip] = useState<{ sel: Sel; start: number; end: number } | null>(null);
+  const [clipDone, setClipDone] = useState<Sel | null>(null);
+
   useEffect(() => {
-    if (playing && follow && activeIdx != null && activeIdx !== sel) setSel(activeIdx);
-  }, [activeIdx, playing, follow, sel]);
+    if (playing && follow && !clip && activeIdx != null && activeIdx !== sel) setSel(activeIdx);
+  }, [activeIdx, playing, follow, sel, clip]);
 
   const seek = useCallback((time: number, play = false) => {
     const v = video.current;
@@ -187,11 +196,99 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
     if (play) v.play().catch(() => {});
   }, []);
 
+  const clipFor = useCallback((s: Sel): { start: number; end: number } | null => {
+    const dur = t.duration_s ?? videoDuration(video.current);
+    if (s === "end") return dur ? { start: Math.max(0, dur - 3), end: dur } : null;
+    const st = t.steps[s];
+    if (!st) return null;
+    let end = st.t_end + 1.5;
+    const after = st.observations?.after;
+    if (after?.file && after.t_capture_end != null && after.t_capture_end > end && after.t_capture_end <= st.t_end + 4) {
+      end = after.t_capture_end + 0.2;  // show the screen the after-state was taken from
+    }
+    const next = t.steps[s + 1];
+    if (next && end > next.t_start - 0.05) end = Math.max(st.t_end + 0.3, next.t_start - 0.05);
+    if (dur) end = Math.min(end, dur);
+    return { start: Math.max(0, st.t_start - 1), end };
+  }, [t.steps, t.duration_s]);
+
+  const playClip = useCallback((s: Sel, from?: number) => {
+    const c = clipFor(s);
+    setView("replay");
+    setClipDone(null);
+    if (!c || t.media?.status !== "ok") return;
+    setClip({ sel: s, ...c });
+    seek(from ?? c.start, true);
+  }, [clipFor, seek, t.media?.status]);
+
+  const stopClip = useCallback(() => setClip(null), []);
+
+  // pause at the end of the clip; a jump outside it (scrubbing with the video's own controls)
+  // turns it into normal playback. Checked on a short timer and on the video's own time updates:
+  // animation frames stop while the window isn't drawn (minimized, covered, a background tab).
+  useEffect(() => {
+    const v = video.current;
+    if (!clip || !playing || !v) return;
+    let done = false;
+    const check = () => {
+      if (done) return;
+      const x = v.currentTime;
+      if (x < clip.start - 0.5 || x > clip.end + 3) {  // far outside: the user moved the playhead
+        done = true;
+        setClip(null);
+      } else if (x >= clip.end) {
+        done = true;
+        v.pause();
+        setClipDone(clip.sel);
+        setClip(null);
+      }
+    };
+    const timer = setInterval(check, 30);
+    v.addEventListener("timeupdate", check);
+    return () => {
+      clearInterval(timer);
+      v.removeEventListener("timeupdate", check);
+    };
+  }, [clip, playing]);
+
   const selectStep = useCallback((s: Sel) => {
     setSel(s);
+    setClipDone(null);
+    if (view === "replay" && t.media?.status === "ok") {
+      playClip(s);   // stepping through in the replay view plays each step
+      return;
+    }
+    setClip(null);
     if (typeof s === "number" && t.steps[s]) seek(Math.max(0, t.steps[s].t_start - 0.5));
     else if (s === "end" && t.duration_s) seek(Math.max(0, t.duration_s - 2));
-  }, [seek, t.steps, t.duration_s]);
+  }, [seek, playClip, view, t.steps, t.duration_s, t.media?.status]);
+
+  /** Space and the Replay tab: pause if playing; otherwise play the selected step (or resume inside it). */
+  const toggleReplay = useCallback(() => {
+    const v = video.current;
+    if (!v || t.media?.status !== "ok") {
+      setView("replay");
+      return;
+    }
+    if (view === "replay" && !v.paused) {
+      v.pause();
+      setClip(null);
+      return;
+    }
+    const c = clipFor(sel);
+    const inside = view === "replay" && c && v.currentTime >= c.start - 0.1 && v.currentTime < c.end - 0.05;
+    playClip(sel, inside ? v.currentTime : undefined);
+  }, [view, sel, clipFor, playClip, t.media?.status]);
+
+  const changeView = useCallback((v: View) => {
+    if (v === "replay") {
+      if (view !== "replay") toggleReplay();
+      return;
+    }
+    video.current?.pause();
+    setClip(null);
+    setView(v);
+  }, [view, toggleReplay]);
 
   // ---- navigation ---------------------------------------------------------------
   const flaggedIdx = useMemo(() => t.steps.map((s, i) => (s.flags.length ? i : -1)).filter((i) => i >= 0), [t]);
@@ -210,27 +307,38 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
     if (nx !== undefined) selectStep(nx);
   }, [flaggedIdx, sel, selectStep]);
 
+  // Shortcuts work wherever focus is, except while typing in a text field. Listening in the capture
+  // phase means a focused button, checkbox or the video itself can't also act on the key (space
+  // used to press whichever button was clicked last instead of playing).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector(".modal-bg")) return;
       if (e.key === "ArrowRight" || e.key === "j") go(1);
       else if (e.key === "ArrowLeft" || e.key === "k") go(-1);
       else if (e.key === "n") nextFlagged();
       else if (e.key === "e") selectStep("end");
-      else if (e.key === "b") setView("before");
-      else if (e.key === "a") setView("after");
+      else if (e.key === "b") changeView("before");
+      else if (e.key === "a") changeView("after");
       else if (e.key === " ") {
-        if (tag === "VIDEO" || tag === "BUTTON") return;
-        setView("replay");
-        const v = video.current;
-        if (v) (v.paused ? v.play() : Promise.resolve(v.pause())).catch(() => {});
+        if (!e.repeat) toggleReplay();
       } else return;
       e.preventDefault();
+      e.stopPropagation();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [go, nextFlagged, selectStep]);
+    // a focused button or checkbox acts on space when it's released: swallow that too
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " " && !typingIn(e.target) && !document.querySelector(".modal-bg")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
+  }, [go, nextFlagged, selectStep, changeView, toggleReplay]);
 
   // ---- derived ----------------------------------------------------------------------
   const open = t.steps.flatMap((s) => s.flags);
@@ -245,7 +353,10 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
             {t.duration_s != null && <> · {fmtTime(t.duration_s)}</>}
             {t.source?.legacy && <> · recorder 0.1</>}
           </div>
-          <h1>{t.task || "Untitled task"}</h1>
+          <h1>
+            {t.task || "Untitled task"}
+            {!readonly && <button className="linkish edit-details" onClick={() => setEditOpen(true)} title="Change the task and “done when”">Edit</button>}
+          </h1>
           <div className="criteria">
             Done when:{" "}
             {t.success_criteria ? <b>{t.success_criteria}</b> : <span className="missing">no success criteria recorded</span>}
@@ -298,10 +409,12 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
       </header>
 
       <Timeline t={t} sel={sel} onSelect={selectStep} playhead={t.media?.status === "ok" ? playhead ?? 0 : null}
-        activeIdx={playing ? activeIdx : null} onSeek={t.media?.status === "ok" ? (x) => { setView("replay"); seek(x); } : undefined} />
+        activeIdx={playing ? activeIdx : null} onSeek={t.media?.status === "ok" ? (x) => { stopClip(); setClipDone(null); setView("replay"); seek(x); } : undefined} />
 
       <div className="rv-body">
-        <Stage ref={video} id={id} t={t} step={step} view={view} setView={setView} onTime={setPlayhead} onPlaying={setPlaying} />
+        <Stage ref={video} id={id} t={t} step={step} view={view} setView={changeView} onTime={setPlayhead} onPlaying={setPlaying}
+          clipNote={clip ? `Playing ${clip.sel === "end" ? "the end" : `step #${String(clip.sel).padStart(2, "0")}`}; it pauses when the step is over`
+            : clipDone !== null && clipDone === sel && !playing ? "Paused after this step. Space plays it again; the video's play button keeps going." : null} />
 
         <aside className="side">
           <div className="step-nav">
@@ -330,14 +443,35 @@ export default function Reviewer({ id, initial, hadReview, rebased }: { id: stri
           )}
 
           <div className="keys">
-            <kbd>←</kbd> <kbd>→</kbd> step · <kbd>n</kbd> next flag · <kbd>e</kbd> end state · <kbd>b</kbd>/<kbd>a</kbd> before/after · <kbd>space</kbd> replay
+            <kbd>←</kbd> <kbd>→</kbd> step · <kbd>n</kbd> next flag · <kbd>e</kbd> end state · <kbd>b</kbd>/<kbd>a</kbd> before/after · <kbd>space</kbd> play step
           </div>
         </aside>
       </div>
+      {editOpen && (
+        <EditDetailsDialog id={id} task={t.task} criteria={t.success_criteria ?? ""} onClose={() => setEditOpen(false)}
+          prepare={() => flush()}
+          onSaved={(r) => {
+            setEditOpen(false);
+            if (!r.changed) return;
+            leaving.current = true;   // everything was saved first; reload with the new text
+            location.reload();
+          }} />
+      )}
       {exportOpen && (
         <ExportDialog ids={[id]} onClose={() => setExportOpen(false)} saveFailed={save.kind === "error"}
           flush={() => flush({ force: touched.current || hadReview })} />
       )}
     </div>
   );
+}
+
+const videoDuration = (v: HTMLVideoElement | null) => (v && Number.isFinite(v.duration) ? v.duration : null);
+
+/** True while the user is typing: shortcuts must not steal those keys. */
+function typingIn(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el?.tagName) return false;
+  if (el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT") return true;
+  if (el.tagName !== "INPUT") return false;
+  return !["checkbox", "radio", "button", "submit", "reset", "range", "color", "file"].includes((el as HTMLInputElement).type);
 }
