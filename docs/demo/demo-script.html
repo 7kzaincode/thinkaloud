@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>thinkaloud demo script v2</title>
+<style>
+  @page {
+    size: Letter;
+    margin: 0.55in 0.6in 0.6in;
+    @bottom-left { content: "thinkaloud demo script · v2"; font: 9pt "Segoe UI", sans-serif; color: #7a847e; }
+    @bottom-right { content: counter(page) " / " counter(pages); font: 9pt "Segoe UI", sans-serif; color: #7a847e; }
+  }
+  :root { --ink: #16201b; --muted: #5b665f; --rule: #d3dad5; --accent: #0d6962; --soft: #e6f1ee; --rec: #c63d27; --recsoft: #fbe9e5; --opt: #8a6300; --optsoft: #f7eed8; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; color: var(--ink); font: 11pt/1.4 "Segoe UI", system-ui, sans-serif; }
+  h1 { font: 700 24pt/1.1 "Segoe UI", sans-serif; margin: 0 0 4pt; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 11.5pt; margin: 0 0 14pt; }
+  h2 { font: 700 15pt/1.2 "Segoe UI", sans-serif; margin: 0; }
+  .ui { font-weight: 700; }
+  code { font: 10pt Consolas, "Cascadia Mono", monospace; background: #eef1ef; padding: 0 3pt; border-radius: 3px; overflow-wrap: anywhere; }
+  kbd { font: 700 9.5pt Consolas, monospace; border: 1px solid #b9c2bc; border-bottom-width: 2px; border-radius: 4px; padding: 0 4pt; background: #fff; }
+
+  .top { display: grid; grid-template-columns: 1fr 1fr; gap: 14pt; margin-bottom: 14pt; }
+  .box { border: 1px solid var(--rule); border-radius: 6px; padding: 9pt 11pt; }
+  .box h3 { font: 700 9pt/1 "Segoe UI", sans-serif; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 0 0 7pt; }
+  table.order { width: 100%; border-collapse: collapse; font-size: 10.5pt; font-variant-numeric: tabular-nums; }
+  table.order td { padding: 1.5pt 0; }
+  table.order td.n { width: 16pt; color: var(--muted); }
+  table.order td.t { text-align: right; color: var(--muted); }
+  table.order tr.rec td:nth-child(2) { color: var(--rec); font-weight: 600; }
+  table.order tr.opt td:nth-child(2) { color: var(--opt); }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 4pt 9pt; font-size: 10.5pt; align-items: baseline; }
+  .keys .grp { grid-column: 1 / -1; font-size: 9pt; color: var(--muted); margin-top: 4pt; }
+
+  ul.prep { list-style: none; padding: 0; margin: 0; display: grid; gap: 5pt; }
+  ul.prep li { padding-left: 18pt; position: relative; }
+  ul.prep li::before { content: ""; position: absolute; left: 0; top: 2.5pt; width: 9pt; height: 9pt; border: 1.3px solid #8c968f; border-radius: 2px; }
+
+  section { margin-top: 16pt; }
+  .head { display: flex; align-items: baseline; gap: 9pt; border-bottom: 2px solid var(--ink); padding-bottom: 4pt; break-after: avoid; }
+  .head .num { font: 700 15pt "Segoe UI", sans-serif; color: var(--accent); min-width: 18pt; }
+  .head .time { margin-left: auto; font: 10.5pt Consolas, monospace; color: var(--muted); }
+  .tag { font: 700 8.5pt "Segoe UI", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; padding: 2pt 6pt; border-radius: 10px; }
+  .tag.rec { color: var(--rec); background: var(--recsoft); }
+  .tag.opt { color: var(--opt); background: var(--optsoft); }
+  .show { margin: 6pt 0 2pt; color: var(--muted); break-after: avoid; }
+  .show b { color: var(--ink); }
+  .note { margin: 6pt 0 2pt; padding: 6pt 9pt; border-radius: 5px; background: var(--soft); break-inside: avoid; }
+  section.recsec .note { background: var(--recsoft); }
+
+  .row { display: grid; grid-template-columns: 34% 1fr; gap: 14pt; padding: 7pt 0; border-bottom: 1px solid var(--rule); break-inside: avoid; }
+  .do { font-size: 10.5pt; color: #2e3a33; }
+  .do .lbl, .say .lbl { display: block; font: 700 7.5pt "Segoe UI", sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 1pt; }
+  .say { font-size: 14pt; line-height: 1.35; font-weight: 500; }
+  .say.empty { color: #aab3ad; font-size: 10.5pt; font-weight: 400; }
+  .say .alt { display: block; margin-top: 5pt; font-size: 10pt; color: var(--muted); font-weight: 400; }
+  .say .alt q { font-size: 12.5pt; color: var(--ink); font-weight: 500; }
+  q { quotes: "\201C" "\201D"; }
+  .end { margin-top: 18pt; break-inside: avoid; }
+  .end ul { margin: 6pt 0 0; padding-left: 16pt; display: grid; gap: 3pt; }
+  .do::before { content: ""; float: left; width: 9pt; height: 9pt; margin: 2.5pt 6pt 0 0; border: 1.3px solid #8c968f; border-radius: 2px; }
+  .do.nobox::before { display: none; }
+  .tip { display: block; margin-top: 5pt; font-size: 9.5pt; color: var(--opt); }
+  .tip::before { content: "If it looks different: "; font-weight: 700; }
+  .why { display: block; margin-top: 5pt; font-size: 9.5pt; color: var(--accent); }
+  .why::before { content: "Why this line: "; font-weight: 700; }
+</style>
+<body>
+
+<h1>thinkaloud demo script</h1>
+<p class="sub">Google Flights: cheapest nonstop from Toronto Pearson to San Francisco on Oct 16. About 6 minutes. Tick the box as
+you do each thing. The lines are a starting point, so say them your way.</p>
+
+<div class="top">
+  <div class="box">
+    <h3>Run order</h3>
+    <table class="order">
+      <tr><td class="n">1</td><td>Intro</td><td class="t">0:00</td></tr>
+      <tr><td class="n">2</td><td>Start a recording</td><td class="t">0:20</td></tr>
+      <tr class="rec"><td class="n">3</td><td>The flight search (recording)</td><td class="t">0:45</td></tr>
+      <tr><td class="n">4</td><td>Processing</td><td class="t">2:05</td></tr>
+      <tr><td class="n">5</td><td>Review the steps</td><td class="t">2:15</td></tr>
+      <tr><td class="n">6</td><td>Checklist and verdict</td><td class="t">3:25</td></tr>
+      <tr class="opt"><td class="n">7</td><td>Privacy (optional)</td><td class="t">4:10</td></tr>
+      <tr><td class="n">8</td><td>Export</td><td class="t">4:45</td></tr>
+      <tr><td class="n">9</td><td>Managing recordings</td><td class="t">5:20</td></tr>
+      <tr><td class="n">10</td><td>Wrap</td><td class="t">5:45</td></tr>
+    </table>
+  </div>
+  <div class="box">
+    <h3>Keys</h3>
+    <div class="keys">
+      <div class="grp">While recording</div>
+      <span><kbd>F9</kbd></span><span>Stop recording</span>
+      <span><kbd>F8</kbd></span><span>Pause / resume</span>
+      <div class="grp">On the review page</div>
+      <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd></span><span>Previous / next step (in Replay, plays it)</span>
+      <span><kbd>space</kbd></span><span>Play this step, then pause</span>
+      <span><kbd>b</kbd> <kbd>a</kbd></span><span>Before / after screenshot</span>
+      <span><kbd>n</kbd></span><span>Next flag</span>
+      <span><kbd>e</kbd></span><span>End state (checklist and verdict)</span>
+    </div>
+  </div>
+</div>
+
+<div class="box">
+  <h3>Before you hit record</h3>
+  <ul class="prep">
+    <li><b>Open thinkaloud 0.2.1</b> (<code>thinkaloud-portable-0.2.1.exe</code> on your Desktop). Close any older copy first.</li>
+    <li><b>Do the task in Chrome, not Arc.</b> Arc hides the buttons on a web page from Windows, so every step says
+      &ldquo;Clicked at (x, y)&rdquo;. In Chrome it says what you clicked. Use a Guest window (profile icon &rarr;
+      <span class="ui">Guest</span>) so no bookmarks, account or history show. Open Google Flights and maximize it.</li>
+    <li><b>Clean up the list:</b> tick your old test recordings, <span class="ui">Delete selected</span>, then
+      <span class="ui">Empty Recently deleted</span> at the bottom.</li>
+    <li><b>Settings:</b> Speech recognition on <span class="ui">Accurate</span>, Gemini key saved. Do this before OBS starts, so the key is never on camera.</li>
+    <li><b>OBS:</b> Display Capture plus your mic. Don&rsquo;t give OBS the F8 or F9 hotkeys.</li>
+    <li><b>Do Not Disturb</b> on, Discord and other windows closed.</li>
+    <li><b>Practice once</b>, then check the review page: steps should name what you clicked, and each <span class="ui">Why</span> should be whole sentences.</li>
+    <li><b>For section 7 (optional):</b> record the fake sign-in first: open <code>C:\Users\admin\thinkaloud\docs\demo\signin.html</code>
+      in Chrome, Task <code>Sign in to Harbor Portal</code>, Done when <code>The page says Signed in</code>, type
+      <code>demo.reviewer@example.com</code> and a made-up password, click <span class="ui">Sign in</span>, <kbd>F9</kbd>.</li>
+  </ul>
+</div>
+
+<section>
+  <div class="head"><span class="num">1</span><h2>Intro</h2><span class="time">0:00&ndash;0:20</span></div>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Start on the <span class="ui">Recordings</span> page.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;Hi, I&rsquo;m Zain, I study computer engineering at Waterloo. This is thinkaloud. You do a task on your computer and talk through what you&rsquo;re doing and why, and it turns that into training data for computer-use agents. The name is about as literal as it gets.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do nobox"></div>
+    <div class="say">&ldquo;I&rsquo;ll shop for a flight, review the recording, and export it. No actual booking, my bank account appreciates that.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">2</span><h2>Start a recording</h2><span class="time">0:20&ndash;0:45</span></div>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Click <span class="ui">New recording</span>.<br><br><span class="ui">Task:</span> <code>Find the cheapest nonstop flight from Toronto Pearson (YYZ) to San Francisco (SFO) on October 16</code><br><br><span class="ui">Done when:</span> <code>The cheapest nonstop YYZ to SFO flight on October 16 is selected and its price is showing</code></div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;First I write down the task and what done looks like. Whoever reviews this later checks the final screen against it, and the speech-to-text uses it too, so it spells Pearson right.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Talk until it says <span class="ui">We can hear you.</span></div>
+    <div class="say">&ldquo;It checks the mic first, and warns you if you picked a virtual one.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click <span class="ui">Start recording</span>. During the countdown, click into Chrome.</div>
+    <div class="say empty">(no line)</div>
+  </div>
+</section>
+
+<section class="recsec">
+  <div class="head"><span class="num">3</span><h2>The flight search</h2><span class="tag rec">&#9679; thinkaloud recording</span><span class="time">0:45&ndash;2:05</span></div>
+  <p class="note">Talk to yourself, not the audience. <b>Say the reason, then do it</b>, and let each click land before the next sentence: the app splits what you say at those pauses and gives each sentence to the click that follows it.</p>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Trip type (says <span class="ui">Round trip</span>) &rarr; <span class="ui">One way</span></div>
+    <div class="say"><span class="lbl">Say, then do</span>&ldquo;One way. I just need to get there.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click <span class="ui">Where from?</span>, type <code>Pearson</code>, pick <span class="ui">Toronto Pearson International Airport</span></div>
+    <div class="say">&ldquo;From Pearson, since that&rsquo;s the airport I can actually get to from Waterloo.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click <span class="ui">Where to?</span>, type <code>SFO</code>, pick <span class="ui">San Francisco International Airport</span></div>
+    <div class="say">&ldquo;SFO specifically. Oakland and San Jose are sometimes cheaper, but getting into the city from them isn&rsquo;t.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click <span class="ui">Departure</span>, pick <b>16</b> (October), click <span class="ui">Done</span>. Then <span class="ui">Search</span>.
+      <span class="tip">if the date picker shows two months, the 16th is in the October one. If the button says Explore, click that.</span></div>
+    <div class="say">&ldquo;Leaving October sixteenth. Searching.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do"><span class="ui">Stops</span> &rarr; <span class="ui">Nonstop only</span>, then close the menu.<br><b>This is &ldquo;the Nonstop step&rdquo;</b> used in section 5.</div>
+    <div class="say">&ldquo;Nonstop only. A connection might save fifty bucks, but it&rsquo;d cost me half a day.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click the <span class="ui">Cheapest</span> tab above the results.</div>
+    <div class="say">&ldquo;Switching to cheapest. The default ranks by other stuff too, like duration.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Look at the first result (Porter). Point at the carry-on bag icon.
+      <span class="tip">if the first result isn&rsquo;t Porter or has no carry-on, say what&rsquo;s actually on screen; a real reason beats a scripted one.</span></div>
+    <div class="say">&ldquo;Porter&rsquo;s first, and it comes with a carry-on bag, so it&rsquo;s still the cheapest once I count my bag. Perfect.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click the Porter flight. <b>Hold still 2 seconds</b>: this screen is the final screenshot the checklist is checked against.</div>
+    <div class="say">&ldquo;That&rsquo;s the one. Done.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Press <kbd>F9</kbd></div>
+    <div class="say empty">(no line)</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">4</span><h2>Processing</h2><span class="time">2:05&ndash;2:15</span></div>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Say this over the processing screen; cut the wait when you edit. The review page opens by itself.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;Processing runs on my laptop. It transcribes what I said, splits it into sentences, matches each one to the click it explains, pulls the screenshots and runs quality checks. Nothing gets uploaded.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">5</span><h2>Review the steps</h2><span class="time">2:15&ndash;3:25</span></div>
+  <p class="show"><b>Show:</b> every click has what was clicked, the screen before and after, and the reason, lined up in time.</p>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Point at the timeline. Press <kbd>&rarr;</kbd> a few times and watch the shaded band move.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;Each tick on this timeline is one step. The shaded part is everything that belongs to the step I&rsquo;ve picked, including what I said about it.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Go to <b>the Nonstop step</b> (the one that says <span class="ui">Clicked the Nonstop only&hellip;</span>, about two-thirds along). Open <span class="ui">Raw action and target</span>.
+      <span class="tip">if it says &ldquo;Clicked at (x, y)&rdquo;, you recorded in Arc; skip this line.</span></div>
+    <div class="say">&ldquo;It records what I clicked by name, plus where it was on screen. The name comes from Windows accessibility data.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Point at the <span class="ui">Why</span> box and <span class="ui">carried from #&hellip;</span> above it.</div>
+    <div class="say">&ldquo;I said why right before I opened the Stops menu, so this click carries that reason, and it&rsquo;s labelled as carried. It doesn&rsquo;t pretend I said it here.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Press <kbd>space</kbd>. Let it play and stop by itself.</div>
+    <div class="say">&ldquo;Space plays just this step, with what I said about it, and then stops.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Go to the last step (the Porter click). Click the green <span class="ui">&#9654; said before the action</span> chip under <span class="ui">Why</span>.</div>
+    <div class="say">&ldquo;These chips jump to exactly when I said each part. Green is before the click, orange is after, so a reason you gave ahead of time is kept apart from one you made up afterwards.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Press <kbd>b</kbd>, then <kbd>a</kbd>.</div>
+    <div class="say">&ldquo;The screen right before the click, and after it settled.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Fix a word in a <span class="ui">Why</span> box. It shows <span class="ui">edited by reviewer</span> and keeps the original underneath.</div>
+    <div class="say">&ldquo;Speech-to-text isn&rsquo;t perfect, so a reviewer can fix the reasoning. The original stays on record.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">6</span><h2>Checklist and verdict</h2><span class="time">3:25&ndash;4:10</span></div>
+  <p class="show"><b>Show:</b> a person decides whether the task got done. The AI only suggests.</p>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Press <kbd>e</kbd>.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;This is the final screen. Now, did the task actually get done?&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Tick the consent box. <span class="ui">Draft checklist from &ldquo;done when&rdquo;</span>, then <span class="ui">Accept</span> the drafts.</div>
+    <div class="say">&ldquo;AI drafts a checklist from my done-when. Nothing is sent until I tick this, and nothing counts until I accept it.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do"><span class="ui">Check final screen against checklist</span>.</div>
+    <div class="say">&ldquo;Then it checks the final screenshot against each item.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">The &ldquo;cheapest&rdquo; item will probably say <span class="ui">can&rsquo;t be determined</span>. Click back to the <span class="ui">Cheapest</span> tab step, then mark it <span class="ui">Met</span> yourself.</div>
+    <div class="say">&ldquo;It can&rsquo;t tell this was the cheapest, which is fair, the other flights aren&rsquo;t on this screen. I sorted by cheapest right here, so I&rsquo;ll mark it met myself.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click <span class="ui">Task done</span>.</div>
+    <div class="say">&ldquo;Task done. Only recordings a person marked done should be used as examples of doing it right, otherwise you&rsquo;re training an agent on a failed attempt.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">7</span><h2>Privacy</h2><span class="tag opt">optional</span><span class="time">4:10&ndash;4:45</span></div>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span><span class="ui">&larr; recordings</span>, open the Harbor Portal sign-in. Click the password step.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;I recorded a sign-in earlier on a fake local page. The password step only says how many characters went into a password field. The keystrokes were never saved.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Click the email step: <code>[REDACTED]</code> and a red <span class="ui">possible email</span> flag.</div>
+    <div class="say">&ldquo;The email is redacted in the data, but it&rsquo;s still in the screenshots, so export is blocked until a person looks.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do"><span class="ui">Export&hellip;</span> &rarr; <span class="ui">Export</span> (it&rsquo;s skipped) &rarr; <span class="ui">I checked the privacy flags: export anyway</span>.</div>
+    <div class="say">&ldquo;It&rsquo;s a fake address, so I&rsquo;ll let it through. F8 pauses everything for anything private mid-task.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">8</span><h2>Export</h2><span class="time">4:45&ndash;5:20</span></div>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span>Flight recording &rarr; <span class="ui">Export&hellip;</span>, both formats ticked, <span class="ui">Export</span>.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;Export writes two formats: a plain dataset any lab can load, and Claude&rsquo;s computer-use format, where every step is a tool call with the screenshot as its result.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Point at <span class="ui">Bundle validation: passed</span>.</div>
+    <div class="say">&ldquo;It checks the bundle before calling it done: checksums, schema, screenshot timing and coordinates.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Open <code>Documents\thinkaloud\exports\</code> &rarr; newest &rarr; <code>recordings\&lt;id&gt;\trajectory.json</code>; scroll to the Nonstop step. Then <code>claude\&lt;id&gt;.json</code>.</div>
+    <div class="say">&ldquo;Here&rsquo;s the Nonstop click: what got clicked, the reason, when I said it, and the before and after screenshots. And the same step as a Claude tool call.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">9</span><h2>Managing recordings</h2><span class="time">5:20&ndash;5:45</span></div>
+  <div class="row">
+    <div class="do"><span class="lbl">Do</span><span class="ui">&larr; recordings</span>. Point at the numbers along the top and the <span class="ui">Review</span> column.</div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;With a bunch of contributors you&rsquo;d have a pile of these. This page shows how much of each one is narrated, what&rsquo;s still flagged, and what the reviewer decided.&rdquo;</div>
+  </div>
+  <div class="row">
+    <div class="do">Hover a row: <span class="ui">Edit &middot; Show in folder &middot; Delete</span>. Select a few, point at <span class="ui">Process selected</span> and <span class="ui">Workers</span>.</div>
+    <div class="say">&ldquo;Recordings can be renamed or deleted, and deleted ones sit in Recently deleted until you empty it. You can process a backlog a few at a time and export a whole selection as one bundle.&rdquo;</div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><span class="num">10</span><h2>Wrap</h2><span class="time">5:45&ndash;6:00</span></div>
+  <div class="row">
+    <div class="do nobox"></div>
+    <div class="say"><span class="lbl">Say</span>&ldquo;Computer-use agents need the reasoning behind each click and a person&rsquo;s word that the task actually got done, without anyone&rsquo;s email ending up in the data. That&rsquo;s what thinkaloud does. It&rsquo;s Windows only for now, which is a polite way of saying I haven&rsquo;t figured out Mac yet. Thanks for watching.&rdquo;</div>
+  </div>
+</section>
+
+<div class="box end">
+  <h3>When you edit</h3>
+  <ul>
+    <li>Cut the processing wait and dead air.</li>
+    <li>Zoom in on the side panel and timeline in section 5; the text is small at 1080p.</li>
+    <li>Over 6 minutes? Drop section 7, then shorten section 9.</li>
+  </ul>
+</div>
+
+</body>
+</html>
