@@ -1,7 +1,7 @@
 """Batch-process many recordings with bounded concurrency. Runs natively or in Docker.
 
     python -m thinkaloud batch <session dirs or folders of sessions> --jobs DIR
-           [--concurrency 2] [--retries 1] [--force] [--job-id ID] [--model base.en]
+           [--concurrency 2] [--retries 1] [--force] [--job-id ID] [--model large-v3-turbo]
 
 Each recording is processed in its own subprocess (`python -m thinkaloud <dir>`), so a
 crash or bad input in one recording cannot take down the others. State is persisted:
@@ -15,8 +15,9 @@ Claiming: a recording is claimed with an exclusive lock file (processing.lock, c
 O_EXCL, touched by the heartbeat), so two jobs never process it at once; a lock whose
 heartbeat stopped for STALE_S is taken over.
 
-Idempotent: a recording whose inputs hash to the same value as its last successful run
-(processing.json done_input_hash, and trajectory.json exists) is skipped unless --force. Outputs are written
+Idempotent: a recording whose inputs (and speech model) hash to the same value as its last
+successful run (processing.json done_input_hash, and trajectory.json exists) is skipped unless
+--force. Outputs are written
 atomically by the pipeline, so a failed or interrupted attempt leaves the previous
 good output in place. Restart handling: a "running" entry whose heartbeat is older
 than STALE_S is treated as interrupted and processed again; a recording another live
@@ -71,8 +72,9 @@ def read_json(p: Path):
         return None
 
 
-def input_hash(session: Path) -> str:
+def input_hash(session: Path, model: str = "") -> str:
     h = hashlib.sha256(PROCESSOR_VERSION.encode())
+    h.update(f"model:{model}".encode())  # another speech model means another transcript
     for rel in INPUT_FILES:
         p = session / rel
         h.update(rel.encode())
@@ -240,7 +242,7 @@ class Job:
     def _one(self, session: Path) -> None:
         prev = read_json(session / "processing.json") or {}
         try:
-            ih = input_hash(session)
+            ih = input_hash(session, self.model)
         except OSError as e:
             self.status(session, state="failed", attempts=0, error=f"cannot read recording: {e}", finished_at=now_iso())
             return
@@ -343,7 +345,7 @@ def main(argv=None) -> int:
     p.add_argument("--retries", type=int, default=1)
     p.add_argument("--force", action="store_true", help="reprocess even if inputs are unchanged")
     p.add_argument("--job-id", default=None)
-    p.add_argument("--model", default=os.environ.get("THINKALOUD_WHISPER_MODEL", "base.en"))
+    p.add_argument("--model", default=None, help="speech model (default: THINKALOUD_WHISPER_MODEL or large-v3-turbo)")
     p.add_argument("--runner", default=os.environ.get("THINKALOUD_RUNNER", "local"))
     a = p.parse_args(argv)
     if not 1 <= a.concurrency <= 16:
@@ -352,6 +354,10 @@ def main(argv=None) -> int:
     if not sessions:
         print(json.dumps({"ok": False, "error": "no recordings found"}))
         return 2
+    if not a.model:
+        from .transcribe import default_model
+
+        a.model = default_model()
     job_id = a.job_id or f"b{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(2)}"
     print(json.dumps({"event": "started", "job_id": job_id, "total": len(sessions)}), flush=True)
     result = Job(sessions, a.jobs, job_id, a.concurrency, a.retries, a.force, a.model, a.runner).run()

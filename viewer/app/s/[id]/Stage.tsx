@@ -14,11 +14,13 @@ interface Props {
   setView: (v: View) => void;
   onTime: (t: number) => void;
   onPlaying: (p: boolean) => void;
+  /** what the replay is doing (playing one step, paused after it) */
+  clipNote?: string | null;
 }
 
 const frameUrl = (id: string, file: string) => `/api/sessions/${encodeURIComponent(id)}/frame/${file}`;
 
-const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, view, setView, onTime, onPlaying }, videoRef) {
+const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, view, setView, onTime, onPlaying, clipNote }, videoRef) {
   const media = t.media;
   const hasMedia = media?.status === "ok" && !!media.file;
   const obs: Observation | undefined = step
@@ -50,7 +52,7 @@ const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, 
           </button>
         </div>
         <span className="hint">
-          <kbd>b</kbd> before · <kbd>a</kbd> after · <kbd>space</kbd> replay
+          <kbd>b</kbd> before · <kbd>a</kbd> after · <kbd>space</kbd> play this step
         </span>
       </div>
 
@@ -108,7 +110,7 @@ const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, 
       <div className="shot-caption mono">
         {view === "replay" ? (
           <>
-            <span>{hasMedia ? `${media!.video ? "screen video" : "no video"} · ${media!.audio ? "narration audio" : "no audio"}` : "—"}</span>
+            <span>{clipNote ?? (hasMedia ? `${media!.video ? "screen video" : "no video"} · ${media!.audio ? "narration audio" : "no audio"}` : "—")}</span>
             <span>{hasMedia && media!.audio && media!.audio_offset_s != null ? `audio placed at ${media!.audio_offset_s.toFixed(3)} s on the recording clock` : ""}</span>
           </>
         ) : obs ? (

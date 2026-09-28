@@ -16,7 +16,7 @@ services:
       - thinkaloud-models:/models
     environment:
       THINKALOUD_CONCURRENCY: ${THINKALOUD_CONCURRENCY:-2}
-      THINKALOUD_WHISPER_MODEL: ${THINKALOUD_WHISPER_MODEL:-base.en}
+      THINKALOUD_WHISPER_MODEL: ${THINKALOUD_WHISPER_MODEL:-large-v3-turbo}
     command: ["batch", "/data/sessions", "--jobs", "/data/jobs", "--retries", "1"]
 
 volumes:

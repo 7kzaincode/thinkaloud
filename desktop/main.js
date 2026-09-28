@@ -369,6 +369,18 @@ function restoreMain() {
   win.focus();
 }
 
+/** The speech model chosen in Settings (the viewer writes DATA/settings.json); null = the engine's default. */
+const SPEECH_MODELS = ["base.en", "small.en", "large-v3-turbo"];
+function speechModel() {
+  if (process.env.THINKALOUD_WHISPER_MODEL) return null; // the engine reads it itself
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(DATA, "settings.json"), "utf-8")).speech_model;
+    return SPEECH_MODELS.includes(m) ? m : null;
+  } catch {
+    return null;
+  }
+}
+
 /** processing.json is what the batch view reads (same format as the batch processor). */
 function writeStatus(dir, fields) {
   const p = path.join(dir, "processing.json");
@@ -399,7 +411,9 @@ function afterRecording(saved) {
     writeStatus(saved.dir, {});
     try { const now = new Date(); fs.utimesSync(lock, now, now); } catch { /* removed */ }
   }, 2000);
-  const child = runEngine(["process", "--json", saved.dir], (ev) => send("process", { ...ev, session_id: saved.session_id }));
+  const model = speechModel();
+  const child = runEngine(["process", "--json", ...(model ? ["--model", model] : []), saved.dir],
+    (ev) => send("process", { ...ev, session_id: saved.session_id }));
   child.on("close", (code) => {
     clearInterval(beat);
     fs.rmSync(lock, { force: true });
@@ -414,6 +428,12 @@ function afterRecording(saved) {
 ipcMain.handle("open:sessions", () => {
   fs.mkdirSync(SESSIONS, { recursive: true });
   shell.openPath(SESSIONS);
+});
+ipcMain.handle("open:session", (_e, id) => {
+  // only a folder directly inside the recordings folder, named like a recording
+  if (typeof id !== "string" || !/^(?!\.{1,2}$)[\w.-]+$/.test(id)) return;
+  const dir = path.join(SESSIONS, id);
+  if (path.dirname(dir) === SESSIONS && fs.existsSync(dir)) shell.openPath(dir);
 });
 ipcMain.handle("info", () => ({ sessions: SESSIONS, dev: DEV, version: app.getVersion() }));
 

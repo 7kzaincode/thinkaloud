@@ -223,6 +223,7 @@ export interface ProcessingStatus {
 export interface SessionSummary {
   id: string;
   task: string;
+  criteria?: string;
   recorded_at: string | null;
   duration_s: number | null;
   processed: boolean;
@@ -234,4 +235,8 @@ export interface SessionSummary {
   outcome: "pass" | "fail" | null;
   warnings: string[];
   error?: string;
+  /** a bundled sample (or another read-only folder): can't be renamed or deleted */
+  readonly: boolean;
+  /** still being recorded (no meta.json yet) */
+  in_progress: boolean;
 }

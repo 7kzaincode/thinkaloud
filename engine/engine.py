@@ -6,7 +6,8 @@
     engine validate  <bundle dir or .zip>
     engine review    --session DIR --kind narration|checklist|final_screen   (JSON on stdin)
     engine ai-status
-    engine batch     <sessions...> --jobs DIR [--concurrency N] [--force] [--retries N]
+    engine batch     <sessions...> --jobs DIR [--concurrency N] [--force] [--retries N] [--model M]
+    engine details   <session dir>   ({"task": ..., "success_criteria": ...} on stdin)
 
 In development the app runs this with the repo's .venv. For the installer it is
 frozen with PyInstaller (see engine/build.ps1) so users don't need Python.
@@ -22,7 +23,7 @@ else:
 
 
 def main() -> int:
-    commands = ("record", "process", "export", "validate", "review", "ai-status", "batch")
+    commands = ("record", "process", "export", "validate", "review", "ai-status", "batch", "details")
     if len(sys.argv) < 2 or sys.argv[1] not in commands:
         print(f"usage: engine {{{'|'.join(commands)}}} [args...]", file=sys.stderr)
         return 2
@@ -40,7 +41,7 @@ def main() -> int:
 
     return {"export": commands.export_main, "validate": commands.validate_main,
             "review": commands.review_main, "ai-status": commands.ai_status_main,
-            "batch": commands.batch_main}[cmd](rest)
+            "batch": commands.batch_main, "details": commands.details_main}[cmd](rest)
 
 
 if __name__ == "__main__":

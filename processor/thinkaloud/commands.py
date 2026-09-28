@@ -67,6 +67,12 @@ def ai_status_main(argv=None) -> int:
     return 0
 
 
+def details_main(argv=None) -> int:
+    from .details import main as details
+
+    return details(argv)
+
+
 def batch_main(argv=None) -> int:
     from .batch import main as batch
 

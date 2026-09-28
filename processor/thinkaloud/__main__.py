@@ -1,4 +1,4 @@
-"""CLI: python -m thinkaloud <session_dir>... [--transcript t.json] [--model base.en] [--ocr]"""
+"""CLI: python -m thinkaloud <session_dir>... [--transcript t.json] [--model large-v3-turbo] [--ocr]"""
 from __future__ import annotations
 
 import argparse
@@ -25,7 +25,11 @@ def main(argv=None) -> int:
                    help="Session folder(s), or a parent folder containing sessions")
     p.add_argument("--transcript", type=Path,
                    help="Use this transcript JSON instead of running Whisper")
-    p.add_argument("--model", default="base.en", help="faster-whisper model size")
+    p.add_argument("--model", default=None,
+                   help="faster-whisper model: base.en (fast), small.en, large-v3-turbo (default, most accurate) "
+                        "or any other faster-whisper name; THINKALOUD_WHISPER_MODEL sets the default")
+    p.add_argument("--language", default="en",
+                   help="spoken language code, or 'auto' to detect it (English-only .en models ignore this)")
     p.add_argument("--ocr", action="store_true", help="OCR screenshots for visible emails")
     p.add_argument("--no-redact", action="store_true",
                    help="Keep typed emails/secrets in the export (not recommended)")
@@ -70,12 +74,14 @@ def _one(d, args) -> int:
     if args.json:
         def log(msg, d=d):
             print(json.dumps({"event": "progress", "dir": str(d), "message": msg}), flush=True)
-        t = process(d, transcript=args.transcript, model=args.model, ocr=args.ocr, redact=not args.no_redact, log=log)
+        t = process(d, transcript=args.transcript, model=args.model, ocr=args.ocr, redact=not args.no_redact, log=log,
+                    language=None if args.language == "auto" else args.language)
         print(json.dumps({"event": "processed", "dir": str(d), "session_id": t["session_id"],
                           "summary": t["qc"]["summary"], "high": t["qc"]["high_severity"]}), flush=True)
         return t["qc"]["high_severity"]
     print(f"== {d}")
-    t = process(d, transcript=args.transcript, model=args.model, ocr=args.ocr, redact=not args.no_redact)
+    t = process(d, transcript=args.transcript, model=args.model, ocr=args.ocr, redact=not args.no_redact,
+                    language=None if args.language == "auto" else args.language)
     print(f"QC: {t['qc']['summary']}")
     for f in t["session_flags"]:
         print(f"  [{f['severity']}] {f['code']}: {f['detail']}")

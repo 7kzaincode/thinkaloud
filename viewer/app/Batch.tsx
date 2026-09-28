@@ -4,16 +4,20 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SessionSummary } from "@/lib/types";
 import { fmtTime } from "@/lib/format";
+import { desktop as desktopBridge } from "@/lib/desktop";
 import ExportDialog from "./s/[id]/ExportDialog";
+import { ConfirmDialog, DeleteDialog, EditDetailsDialog } from "./RecordingDialogs";
 
 type Filter = "all" | "unprocessed" | "failed" | "unreviewed" | "pass" | "fail";
 type SortKey = "date" | "steps" | "narration" | "words";
 
+interface TrashItem { name: string; id: string; task: string; deleted_at: string | null }
 interface Job { id: string; state: string; total: number; done: number; failed: number; concurrency: number; started_at: string; finished_at?: string | null; runner: string }
 
 const pct = (x: number | null | undefined) => (x == null ? "—" : `${Math.round(x * 100)}%`);
 
 function status(s: SessionSummary): { label: string; cls: string } {
+  if (s.in_progress) return { label: "recording…", cls: "run" };
   const p = s.processing?.state;
   if (p === "running") return { label: "processing", cls: "run" };
   if (p === "queued") return { label: "queued", cls: "run" };
@@ -34,15 +38,51 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
   const [jobs, setJobs] = useState<Job[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [editing, setEditing] = useState<SessionSummary | null>(null);
+  const [deleting, setDeleting] = useState<SessionSummary[] | null>(null);
+  const [trash, setTrash] = useState<TrashItem[]>([]);
+  const [undo, setUndo] = useState<string[] | null>(null);   // ids just deleted
+  const [purging, setPurging] = useState<TrashItem | "all" | null>(null);
+  const [bridge, setBridge] = useState<ReturnType<typeof desktopBridge>>(undefined);
+  useEffect(() => setBridge(desktopBridge()), []);
 
   const refresh = useCallback(async () => {
-    const [a, b] = await Promise.all([
+    const [a, b, c] = await Promise.all([
       fetch("/api/sessions").then((r) => r.json()).catch(() => null),
       fetch("/api/batch").then((r) => r.json()).catch(() => null),
+      fetch("/api/trash").then((r) => r.json()).catch(() => null),
     ]);
     if (a?.sessions) setRows(a.sessions);
     if (b?.jobs) setJobs(b.jobs);
+    if (c?.items) setTrash(c.items);
   }, []);
+
+  const restore = async (names: string[]) => {
+    const errors: string[] = [];
+    for (const n of names) {
+      const r = await fetch(`/api/trash/${encodeURIComponent(n)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore" }),
+      }).catch(() => null);
+      if (!r?.ok) errors.push(`${n}: ${(await r?.json().catch(() => null))?.error ?? "could not restore"}`);
+    }
+    setUndo(null);
+    setMsg(errors.length ? `Could not restore ${errors.join("; ")}` : `Restored ${names.length} recording(s)`);
+    await refresh();
+  };
+
+  const undoDelete = async (ids: string[]) => {
+    const items: TrashItem[] = (await fetch("/api/trash").then((r) => r.json()).catch(() => null))?.items ?? [];
+    // the newest deleted copy of each id (the list is newest first)
+    await restore(ids.map((id) => items.find((i) => i.id === id)?.name).filter((n): n is string => !!n));
+  };
+
+  const purge = async (item: TrashItem | "all") => {
+    const r = await fetch(item === "all" ? "/api/trash" : `/api/trash/${encodeURIComponent(item.name)}`, { method: "DELETE" }).catch(() => null);
+    setPurging(null);
+    setUndo(null);
+    setMsg(r?.ok ? (item === "all" ? "Recently deleted emptied" : "Deleted permanently") : "Could not delete: " + ((await r?.json().catch(() => null))?.error ?? "error"));
+    await refresh();
+  };
 
   const busy = rows.some((r) => r.processing?.state === "running" || r.processing?.state === "queued") || jobs.some((j) => j.state === "running");
   useEffect(() => {
@@ -90,6 +130,7 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
     if (starting) return;
     setStarting(true);
     setMsg(null);
+    setUndo(null);
     try {
       const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, concurrency, force }) })
         .catch(() => null);
@@ -107,8 +148,10 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
 
   const exportable = [...selected].filter((id) => rows.find((r) => r.id === id)?.processed);
   const inFlight = (r: SessionSummary) => r.processing?.state === "running" || r.processing?.state === "queued";
-  const newIds = rows.filter((r) => !r.processed && !inFlight(r)).map((r) => r.id);
-  const selectable = rows.filter((r) => selected.has(r.id) && !inFlight(r)).map((r) => r.id);
+  const newIds = rows.filter((r) => !r.processed && !inFlight(r) && !r.in_progress).map((r) => r.id);
+  const selectable = rows.filter((r) => selected.has(r.id) && !inFlight(r) && !r.in_progress).map((r) => r.id);
+  const deletable = (r: SessionSummary) => !r.readonly && !r.in_progress && !inFlight(r);
+  const selectedDeletable = rows.filter((r) => selected.has(r.id) && deletable(r));
 
   return (
     <main className="index wide">
@@ -155,8 +198,17 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
         </button>
         <button className="btn" disabled={!newIds.length || starting} onClick={() => process(newIds)}>Process all new ({newIds.length})</button>
         <button className="btn" disabled={!exportable.length} onClick={() => setExporting(true)}>Export selected ({exportable.length})</button>
+        <button className="btn ghost" disabled={!selectedDeletable.length} onClick={() => setDeleting(selectedDeletable)}
+          title={selectedDeletable.length < selected.size ? "Samples and recordings being processed are left out" : undefined}>
+          Delete selected ({selectedDeletable.length})
+        </button>
       </div>
-      {msg && <div className="small faint" aria-live="polite">{msg}</div>}
+      {(msg || undo) && (
+        <div className="small faint" aria-live="polite">
+          {msg}
+          {undo && <> · <button className="linkish" onClick={() => undoDelete(undo)}>Undo</button></>}
+        </div>
+      )}
       {jobs.filter((j) => j.state === "running").map((j) => (
         <div key={j.id} className="job">
           <span className="spin" /> job {j.id} ({j.runner}, {j.concurrency} worker{j.concurrency > 1 ? "s" : ""}): {j.done + j.failed}/{j.total} done{j.failed ? `, ${j.failed} failed` : ""}
@@ -198,7 +250,16 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
                   <td><input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.id}`} /></td>
                   <td>
                     <Link href={`/s/${encodeURIComponent(s.id)}`} className="task">{s.task || <em>Untitled task</em>}</Link>
-                    <div className="mono faint">{s.id}{s.duration_s != null ? ` · ${fmtTime(s.duration_s)}` : ""}</div>
+                    <div className="mono faint">{s.id}{s.duration_s != null ? ` · ${fmtTime(s.duration_s)}` : ""}{s.readonly ? " · sample" : ""}</div>
+                    {!s.readonly && !s.in_progress && (
+                      <div className="row-actions">
+                        <button className="linkish" onClick={() => setEditing(s)} disabled={inFlight(s)}
+                          title={inFlight(s) ? "Wait until processing has finished" : undefined}>Edit</button>
+                        {bridge?.showRecording && <button className="linkish" onClick={() => bridge.showRecording!(s.id)}>Show in folder</button>}
+                        <button className="linkish danger-text" onClick={() => setDeleting([s])} disabled={inFlight(s)}
+                          title={inFlight(s) ? "Wait until processing has finished" : undefined}>Delete</button>
+                      </div>
+                    )}
                   </td>
                   <td><span className={`status ${st.cls}`}>{st.label}</span>
                     {(s.processing?.state === "failed" || s.processing?.state === "interrupted") && <div className="small bad-text" title={s.processing.error ?? ""}>{(s.processing.error ?? "").slice(0, 60)}</div>}
@@ -225,7 +286,51 @@ export default function Batch({ initial, desktop }: { initial: SessionSummary[];
         Narrated = steps with at least one narration segment of their own (carried or reviewer-written reasoning doesn't count).
         Words / step = narration words attached to steps ÷ all steps. Review counts are human decisions only.
       </p>
+      {trash.length > 0 && (
+        <details className="trash">
+          <summary>Recently deleted ({trash.length})</summary>
+          <p className="small faint">Deleted recordings stay here, with their reviews, until you delete them permanently.</p>
+          <table className="grid">
+            <tbody>
+              {trash.map((i) => (
+                <tr key={i.name}>
+                  <td>
+                    <div>{i.task || <em>Untitled task</em>}</div>
+                    <div className="mono faint">{i.id}{i.deleted_at ? ` · deleted ${new Date(i.deleted_at).toLocaleString()}` : ""}</div>
+                  </td>
+                  <td className="trash-actions">
+                    <button className="btn" onClick={() => restore([i.name])}>Restore</button>
+                    <button className="btn ghost" onClick={() => setPurging(i)}>Delete permanently</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="btn ghost danger-text" onClick={() => setPurging("all")}>Empty Recently deleted</button>
+        </details>
+      )}
       {exporting && <ExportDialog ids={exportable} onClose={() => setExporting(false)} />}
+      {editing && (
+        <EditDetailsDialog id={editing.id} task={editing.task} criteria={editing.criteria ?? ""} onClose={() => setEditing(null)}
+          onSaved={(r) => { setEditing(null); setMsg(r.changed ? "Saved" : "Nothing changed"); void refresh(); }} />
+      )}
+      {purging && (
+        <ConfirmDialog title={purging === "all" ? `Permanently delete ${trash.length} recording(s)?` : "Permanently delete this recording?"}
+          confirmLabel="Delete permanently" onClose={() => setPurging(null)} onConfirm={() => purge(purging)}>
+          {purging !== "all" && <p style={{ margin: "0 0 8px" }}><b>{purging.task || "Untitled task"}</b> <span className="mono faint">{purging.id}</span></p>}
+          The screen recording, audio, screenshots, transcript and review are erased from this computer. This can&apos;t be undone.
+        </ConfirmDialog>
+      )}
+      {deleting && (
+        <DeleteDialog items={deleting} onClose={() => setDeleting(null)}
+          onDone={(r) => {
+            setDeleting(null);
+            setSelected((sel) => { const n = new Set(sel); r.moved.forEach((id) => n.delete(id)); return n; });
+            setMsg(`Deleted ${r.moved.length} recording(s)` + (r.refused.length ? `; not deleted: ${r.refused.map((x) => `${x.id} (${x.reason})`).join(", ")}` : ""));
+            setUndo(r.moved.length ? r.moved : null);
+            void refresh();
+          }} />
+      )}
     </main>
   );
 }

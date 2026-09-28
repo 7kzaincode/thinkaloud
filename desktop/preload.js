@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("thinkaloud", {
   clearApiKey: (provider) => ipcRenderer.invoke("settings:clearApiKey", provider),
   setAiProvider: (provider) => ipcRenderer.invoke("settings:setAiProvider", provider),
   openSessionsFolder: () => ipcRenderer.invoke("open:sessions"),
+  showRecording: (id) => ipcRenderer.invoke("open:session", String(id)),
   info: () => ipcRenderer.invoke("info"),
   onMeter: on("meter"),
   onRecorder: on("recorder"),

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { desktop, type AiProvider, type ApiKeyStatus } from "@/lib/desktop";
+import SpeechSettings from "./SpeechSettings";
 
 type AiStatus = { configured: boolean; provider?: string; provider_name?: string; model: string; reason?: string | null };
 
@@ -44,6 +45,7 @@ export default function Settings() {
     <main className="record">
       <div className="eyebrow"><Link href="/">← recordings</Link> · settings</div>
       <h1>Settings</h1>
+      <SpeechSettings />
       <h2 className="sub">AI-assisted review</h2>
       <p className="lede">
         Optional. AI suggestions (narration checks, checklist drafts, final-screen checks) are sent to the provider below only

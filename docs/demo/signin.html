@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harbor Portal · Sign in</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font: 17px/1.45 "Segoe UI", system-ui, sans-serif; color: #1d232b; background: #eef1f4;
+  }
+  .card { width: 400px; padding: 36px 36px 28px; background: #fff; border-radius: 14px; box-shadow: 0 10px 40px rgb(20 30 45 / 0.12); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; margin-bottom: 26px; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; background: #1f6f8b; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  p { margin: 0 0 22px; color: #5b6570; }
+  label { display: block; font-weight: 600; font-size: 15px; margin: 14px 0 6px; }
+  input { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid #c5ccd4; border-radius: 8px; }
+  input:focus { outline: 2px solid #1f6f8b; border-color: transparent; }
+  button { width: 100%; margin-top: 22px; font: 600 16px "Segoe UI", system-ui, sans-serif; padding: 12px; border: 0; border-radius: 8px; background: #1f6f8b; color: #fff; cursor: pointer; }
+  button:hover { background: #185a71; }
+  .done { display: none; text-align: center; }
+  .done .tick { width: 56px; height: 56px; margin: 6px auto 14px; border-radius: 50%; background: #2e8b57; color: #fff; font-size: 32px; line-height: 56px; }
+  .signed .form { display: none; }
+  .signed .done { display: block; }
+  .note { margin-top: 22px; font-size: 13px; color: #8a939c; text-align: center; }
+</style>
+</head>
+<body>
+  <main class="card" id="card">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>Harbor Portal</div>
+    <form class="form" id="form" autocomplete="off">
+      <h1>Sign in</h1>
+      <p>Use your work email and password.</p>
+      <label for="email">Email</label>
+      <input id="email" name="hp-login-a" type="text" inputmode="email" autocomplete="off" spellcheck="false">
+      <label for="password">Password</label>
+      <input id="password" name="hp-login-b" type="password" autocomplete="new-password">
+      <button type="submit">Sign in</button>
+    </form>
+    <div class="done" aria-live="polite">
+      <div class="tick" aria-hidden="true">✓</div>
+      <h1>Signed in</h1>
+      <p>Welcome back to Harbor Portal.</p>
+    </div>
+    <div class="note">Local demo page for thinkaloud. Nothing you type leaves this computer.</div>
+  </main>
+<script>
+  // No network: signing in only swaps the card to the "Signed in" state.
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    document.getElementById("card").classList.add("signed");
+  });
+</script>
+</body>
+</html>

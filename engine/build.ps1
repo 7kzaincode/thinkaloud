@@ -32,6 +32,7 @@ if ($LASTEXITCODE -ne 0) { throw "could not generate the UI Automation wrapper" 
   --hidden-import thinkaloud.dataset `
   --hidden-import thinkaloud.ai_review `
   --hidden-import thinkaloud.batch `
+  --hidden-import thinkaloud.details `
   --hidden-import pynput.keyboard._win32 `
   --hidden-import pynput.mouse._win32 `
   --collect-submodules comtypes `

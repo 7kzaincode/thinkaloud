@@ -129,14 +129,14 @@ export async function listSessions(): Promise<SessionSummary[]> {
       const summary: SessionSummary = {
         id: name, task: "", recorded_at: null, duration_s: null, processed: hasTraj, processing,
         schema_version: null, legacy: false, metrics: null, reviewed: false,
-        outcome: null, warnings: [],
+        outcome: null, warnings: [], readonly: root !== ROOTS[0], in_progress: false,
       };
       try {
         if (hasTraj) {
           const eff = await effectiveTrajectory(dir);
           const t = eff!.trajectory;
           Object.assign(summary, {
-            task: t.task, recorded_at: t.recorded_at, duration_s: t.duration_s, schema_version: t.schema_version,
+            task: t.task, criteria: t.success_criteria, recorded_at: t.recorded_at, duration_s: t.duration_s, schema_version: t.schema_version,
             legacy: t.source?.legacy ?? t.schema_version === "0.1", metrics: computeMetrics(t),
             reviewed: eff!.reviewed, outcome: t.review.outcome,
           });
@@ -145,7 +145,8 @@ export async function listSessions(): Promise<SessionSummary[]> {
           for (const f of t.session_flags) if (f.severity !== "info") summary.warnings.push(f.code.replaceAll("_", " "));
         } else {
           const meta = await readJson<Record<string, unknown>>(path.join(/*turbopackIgnore: true*/ dir, "meta.json")).catch(() => null);
-          if (meta) Object.assign(summary, { task: String(meta.task ?? ""), recorded_at: (meta.started_at as string) ?? null, duration_s: (meta.duration_s as number) ?? null });
+          if (meta) Object.assign(summary, { task: String(meta.task ?? ""), criteria: String(meta.success_criteria ?? ""), recorded_at: (meta.started_at as string) ?? null, duration_s: (meta.duration_s as number) ?? null });
+          else if (await beingRecorded(dir)) summary.in_progress = true;
           else summary.warnings.push("meta.json missing or unreadable");
         }
         if (processing?.state === "failed") summary.warnings.push(`processing failed: ${processing.error ?? "unknown error"}`);
@@ -218,4 +219,140 @@ export async function mediaPath(id: string, name: string): Promise<string | null
   if (!dir || !/^playback(-[0-9a-f]{8})?\.mp4$/.test(name)) return null;
   const p = path.join(/*turbopackIgnore: true*/ dir, name);
   return (await exists(p)) ? p : null;
+}
+
+// ---------- managing recordings (edit details, delete, restore) ------------------------------
+
+/** Queued or running with a live heartbeat, or locked by a live processor (desktop app or batch job). */
+export async function processingInFlight(dir: string): Promise<boolean> {
+  const fresh = (ms: number) => Date.now() - ms <= 30_000;
+  try {
+    if (fresh((await fs.stat(path.join(/*turbopackIgnore: true*/ dir, "processing.lock"))).mtimeMs)) return true;
+  } catch { /* no lock */ }
+  try {
+    const st = JSON.parse(await fs.readFile(path.join(/*turbopackIgnore: true*/ dir, "processing.json"), "utf-8"));
+    return (st.state === "queued" || st.state === "running") && fresh(Date.parse(st.heartbeat_at ?? 0));
+  } catch {
+    return false;
+  }
+}
+
+/** The recorder writes meta.json when it stops; until then events.jsonl keeps growing. */
+export async function beingRecorded(dir: string): Promise<boolean> {
+  if (await exists(path.join(/*turbopackIgnore: true*/ dir, "meta.json"))) return false;
+  try {
+    return Date.now() - (await fs.stat(path.join(/*turbopackIgnore: true*/ dir, "events.jsonl"))).mtimeMs < 60_000;
+  } catch {
+    return false;
+  }
+}
+
+/** A recording the user owns (in the first folder), not a bundled sample. */
+export async function ownSessionDir(id: string): Promise<string | null> {
+  const dir = await sessionDir(id);
+  return dir && path.dirname(dir) === ROOTS[0] ? dir : null;
+}
+
+export const TRASH_DIR = () => path.join(/*turbopackIgnore: true*/ DATA_DIR, "trash");
+const DELETED_INFO = ".deleted.json";
+const TRASH_SUFFIX = /__d\d+$/;
+
+async function renameRetry(from: string, to: string) {
+  // Windows refuses to move a folder while another program has a file in it open; that is
+  // often momentary (antivirus, the thumbnail cache), so retry for a couple of seconds
+  for (let i = 0; ; i++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? "";
+      if (i >= 20 || !["EPERM", "EBUSY", "EACCES"].includes(code)) throw e;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+}
+
+/** Move recordings to DATA_DIR/trash ("Recently deleted"), with their reviews. */
+export async function trashSessions(ids: string[]): Promise<{ moved: string[]; refused: { id: string; reason: string }[] }> {
+  const moved: string[] = [];
+  const refused: { id: string; reason: string }[] = [];
+  await fs.mkdir(TRASH_DIR(), { recursive: true });
+  for (const id of ids) {
+    const dir = await sessionDir(id);
+    if (!dir) { refused.push({ id, reason: "not found" }); continue; }
+    if (path.dirname(dir) !== ROOTS[0]) { refused.push({ id, reason: "sample recordings can't be deleted" }); continue; }
+    if (await beingRecorded(dir)) { refused.push({ id, reason: "it is still being recorded" }); continue; }
+    if (await processingInFlight(dir)) { refused.push({ id, reason: "it is being processed; try again when that has finished" }); continue; }
+    let task = "";
+    for (const f of [ORIGINAL, "meta.json"]) {
+      const j = await readJson<{ task?: string }>(path.join(/*turbopackIgnore: true*/ dir, f)).catch(() => null);
+      if (j?.task) { task = j.task; break; }
+    }
+    let name = id;
+    if (await exists(path.join(/*turbopackIgnore: true*/ TRASH_DIR(), name))) name = `${id}__d${Date.now()}`;
+    const dest = path.join(/*turbopackIgnore: true*/ TRASH_DIR(), name);
+    try {
+      await renameRetry(dir, dest);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? "";
+      refused.push({ id, reason: ["EPERM", "EBUSY", "EACCES"].includes(code)
+        ? "a file in it is open in another program (close its replay or folder and try again)" : String(e).slice(0, 200) });
+      continue;
+    }
+    await fs.writeFile(path.join(/*turbopackIgnore: true*/ dest, DELETED_INFO),
+      JSON.stringify({ id, task, deleted_at: new Date().toISOString() }, null, 2)).catch(() => {});
+    moved.push(id);
+  }
+  return { moved, refused };
+}
+
+export interface TrashItem { name: string; id: string; task: string; deleted_at: string | null }
+
+export async function listTrash(): Promise<TrashItem[]> {
+  const out: TrashItem[] = [];
+  for (const name of await fs.readdir(TRASH_DIR()).catch(() => [] as string[])) {
+    if (!SAFE_ID.test(name)) continue;
+    const dir = path.join(/*turbopackIgnore: true*/ TRASH_DIR(), name);
+    if (!(await fs.stat(dir).then((st) => st.isDirectory(), () => false))) continue;
+    const info = await readJson<{ id?: string; task?: string; deleted_at?: string }>(path.join(/*turbopackIgnore: true*/ dir, DELETED_INFO)).catch(() => null);
+    out.push({ name, id: info?.id ?? name.replace(TRASH_SUFFIX, ""), task: info?.task ?? "", deleted_at: info?.deleted_at ?? null });
+  }
+  return out.sort((a, b) => (b.deleted_at ?? "").localeCompare(a.deleted_at ?? ""));
+}
+
+function trashItemDir(name: string): string | null {
+  if (!SAFE_ID.test(name)) return null;
+  const root = path.resolve(/*turbopackIgnore: true*/ TRASH_DIR());
+  const dir = path.resolve(/*turbopackIgnore: true*/ root, name);
+  return path.dirname(dir) === root ? dir : null;
+}
+
+export async function restoreTrash(name: string): Promise<{ ok: true; id: string } | { ok: false; error: string; status: number }> {
+  const dir = trashItemDir(name);
+  if (!dir || !(await exists(dir))) return { ok: false, error: "not found", status: 404 };
+  const info = await readJson<{ id?: string }>(path.join(/*turbopackIgnore: true*/ dir, DELETED_INFO)).catch(() => null);
+  const id = info?.id && SAFE_ID.test(info.id) ? info.id : name.replace(TRASH_SUFFIX, "");
+  const dest = path.join(/*turbopackIgnore: true*/ ROOTS[0], id);
+  if (await exists(dest)) return { ok: false, error: `a recording named ${id} already exists`, status: 409 };
+  await fs.mkdir(ROOTS[0], { recursive: true });
+  try {
+    await renameRetry(dir, dest);
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 200), status: 503 };
+  }
+  await fs.rm(path.join(/*turbopackIgnore: true*/ dest, DELETED_INFO), { force: true });
+  return { ok: true, id };
+}
+
+/** Permanently delete one item from Recently deleted, or all of them (name null). */
+export async function purgeTrash(name: string | null): Promise<number> {
+  const names = name === null ? (await listTrash()).map((i) => i.name) : [name];
+  let n = 0;
+  for (const nm of names) {
+    const dir = trashItemDir(nm);
+    if (!dir || !(await exists(dir))) continue;
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    n++;
+  }
+  return n;
 }
