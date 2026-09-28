@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Step, Trajectory } from "@/lib/types";
 import { fmtTime } from "@/lib/format";
 import * as R from "@/lib/review";
+import { stepClip } from "@/lib/clip";
 import Timeline from "./Timeline";
 import Stage, { type View } from "./Stage";
 import StepPanel from "./StepPanel";
@@ -196,21 +197,7 @@ export default function Reviewer({ id, initial, hadReview, rebased, readonly }: 
     if (play) v.play().catch(() => {});
   }, []);
 
-  const clipFor = useCallback((s: Sel): { start: number; end: number } | null => {
-    const dur = t.duration_s ?? videoDuration(video.current);
-    if (s === "end") return dur ? { start: Math.max(0, dur - 3), end: dur } : null;
-    const st = t.steps[s];
-    if (!st) return null;
-    let end = st.t_end + 1.5;
-    const after = st.observations?.after;
-    if (after?.file && after.t_capture_end != null && after.t_capture_end > end && after.t_capture_end <= st.t_end + 4) {
-      end = after.t_capture_end + 0.2;  // show the screen the after-state was taken from
-    }
-    const next = t.steps[s + 1];
-    if (next && end > next.t_start - 0.05) end = Math.max(st.t_end + 0.3, next.t_start - 0.05);
-    if (dur) end = Math.min(end, dur);
-    return { start: Math.max(0, st.t_start - 1), end };
-  }, [t.steps, t.duration_s]);
+  const clipFor = useCallback((s: Sel) => stepClip(t, s, videoDuration(video.current)), [t]);
 
   const playClip = useCallback((s: Sel, from?: number) => {
     const c = clipFor(s);
@@ -409,6 +396,7 @@ export default function Reviewer({ id, initial, hadReview, rebased, readonly }: 
       </header>
 
       <Timeline t={t} sel={sel} onSelect={selectStep} playhead={t.media?.status === "ok" ? playhead ?? 0 : null}
+        clip={clipFor(sel)}
         activeIdx={playing ? activeIdx : null} onSeek={t.media?.status === "ok" ? (x) => { stopClip(); setClipDone(null); setView("replay"); seek(x); } : undefined} />
 
       <div className="rv-body">
@@ -437,7 +425,8 @@ export default function Reviewer({ id, initial, hadReview, rebased, readonly }: 
           )}
 
           {step ? (
-            <StepPanel t={t} index={sel as number} step={step} edit={edit} onJump={selectStep} aiStatus={aiStatus} />
+            <StepPanel t={t} index={sel as number} step={step} edit={edit} onJump={selectStep} aiStatus={aiStatus}
+              onPlayFrom={t.media?.status === "ok" ? (x) => playClip(sel, x) : undefined} />
           ) : (
             <EndPanel id={id} t={t} edit={edit} aiStatus={aiStatus} />
           )}

@@ -45,7 +45,8 @@ def as_whisper_recording(s: Path, model: str | None):
     if model is None:
         (s / "transcript.meta.json").unlink()
     else:
-        (s / "transcript.meta.json").write_text(json.dumps({"source": "whisper", "model": model}), encoding="utf-8")
+        (s / "transcript.meta.json").write_text(json.dumps({"source": "whisper", "model": model, "method": "words-v2"}),
+                                                encoding="utf-8")
 
 
 def texts(t):
@@ -57,7 +58,7 @@ def test_a_transcript_is_reused_only_by_the_model_that_made_it(sample, fake_whis
     before = json.loads((sample / "transcript.json").read_text(encoding="utf-8"))
     t = process(sample, model="large-v3-turbo", log=quiet, playback=False)
     assert fake_whisper == [] and texts(t) == [g["text"] for g in before]
-    assert t["source"]["transcript"] == {"source": "whisper", "model": "large-v3-turbo"}
+    assert t["source"]["transcript"] == {"source": "whisper", "model": "large-v3-turbo", "method": "words-v2"}
 
     t = process(sample, model="small.en", log=quiet, playback=False)
     assert fake_whisper == ["small.en"] and texts(t) == ["said with small.en"]
@@ -69,12 +70,12 @@ def test_a_transcript_is_reused_only_by_the_model_that_made_it(sample, fake_whis
     assert fake_whisper == ["small.en"]
 
 
-def test_transcripts_cached_before_models_were_recorded_count_as_base_en(sample, fake_whisper):
-    as_whisper_recording(sample, None)
+def test_transcripts_cached_before_word_timings_are_redone_once(sample, fake_whisper):
+    as_whisper_recording(sample, None)               # made by an older version (base.en, no word timings)
     process(sample, model="base.en", log=quiet, playback=False)
-    assert fake_whisper == []
-    process(sample, model="large-v3-turbo", log=quiet, playback=False)
-    assert fake_whisper == ["large-v3-turbo"]
+    assert fake_whisper == ["base.en"]
+    process(sample, model="base.en", log=quiet, playback=False)
+    assert fake_whisper == ["base.en"]                # now cached with word timings
 
 
 def test_a_supplied_transcript_is_never_replaced_by_speech_to_text(sample, fake_whisper, tmp_path):
@@ -87,6 +88,14 @@ def test_a_supplied_transcript_is_never_replaced_by_speech_to_text(sample, fake_
     assert texts(t) == ["hand-made"] and t["source"]["transcript"] == {"source": "file", "file": "mine.json"}
     t = process(sample, model="base.en", log=quiet, playback=False)  # later runs keep it
     assert fake_whisper == [] and texts(t) == ["hand-made"]
+
+
+def test_a_transcript_made_without_word_timings_is_redone_with_the_task_as_context(sample, fake_whisper):
+    (sample / "transcript.meta.json").write_text(json.dumps({"source": "whisper", "model": "large-v3-turbo"}),
+                                                 encoding="utf-8")
+    t = process(sample, model="large-v3-turbo", log=quiet, playback=False)
+    assert fake_whisper == ["large-v3-turbo"]
+    assert t["source"]["transcript"]["method"] == "words-v2" and t["source"]["transcript"]["context"] is True
 
 
 def test_without_audio_the_cached_transcript_is_kept_whatever_the_model(sample, fake_whisper):

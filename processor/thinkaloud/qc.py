@@ -29,7 +29,8 @@ Session checks
   missing_task, missing_success_criteria, no_final_screenshot,
   unassigned_narration, no_narration, legacy_recording (info), recording_incomplete (warn: no end
   marker), recorder_errors (warn), audio_gaps (info: overflow padding), masked_unknown_focus (warn),
-  password_masking_off (warn: UI Automation off or unavailable, password fields not detected)
+  password_masking_off (warn: UI Automation off or unavailable, password fields not detected),
+  click_targets_unknown (info: the app exposed only its window, e.g. Arc's web pages)
 """
 from __future__ import annotations
 
@@ -39,6 +40,8 @@ import os
 import re
 import secrets
 from pathlib import Path
+
+from .align import is_noise
 
 IDLE_GAP = 20.0
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -148,7 +151,7 @@ def check_steps(steps: list[dict], segments: list[dict], pauses: list | None = N
         s.setdefault("flags", [])
         a = s["action"]
 
-        if not s.get("reasoning", "").strip():
+        if not s.get("reasoning", "").strip() and not is_noise(s):   # a stray Alt press needs no reason
             s["flags"].append(flag("missing_reasoning", "warn", "No narration aligned to this step."))
 
         gap = s["t_start"] - prev_end - paused_between(pauses, prev_end, s["t_start"])
@@ -344,7 +347,32 @@ def check_session(meta: dict, steps: list[dict], segments: list[dict],
     if loose:
         out.append(flag("unassigned_narration", "info",
                         f"{len(loose)} transcript segment(s) came before any action."))
+    unknown = window_sized_targets(meta, steps)
+    if unknown:
+        n, total, app = unknown
+        out.append(flag("click_targets_unknown", "info",
+                        f"Windows couldn't tell what was clicked in {app} ({n} of {total} clicks): the app only "
+                        "exposes its window, not the buttons and fields inside it, so those steps show coordinates "
+                        "instead of names. Arc does this for web pages; Chrome and Edge name page elements."))
     return out
+
+
+def window_sized_targets(meta: dict, steps: list[dict]) -> tuple[int, int, str] | None:
+    """Most clicks resolved to a pane about the size of the screen: the app hides its contents
+    from UI Automation. Returns (such clicks, all clicks, the app) or None."""
+    scr = meta.get("screen") or {}
+    area = (scr.get("w") or 0) * (scr.get("h") or 0)
+    clicks = [s for s in steps if s["action"]["type"] in ("click", "drag") and s.get("target")]
+    if not area or len(clicks) < 3:
+        return None
+    big = [s for s in clicks if s["target"].get("status") == "ok" and s["target"].get("role") in ("pane", "window")
+           and not s["target"].get("name") and (s["target"].get("rect") or [0, 0, 0, 0])[2]
+           * (s["target"].get("rect") or [0, 0, 0, 0])[3] >= 0.6 * area]
+    if len(big) < max(3, 0.6 * len(clicks)):
+        return None
+    apps = [((s.get("context") or {}).get("process") or "").removesuffix(".exe") for s in big]
+    app = max(set(apps), key=apps.count) or "this app"
+    return len(big), len(clicks), app
 
 
 # Parameter names are split into word tokens (access_token, accessToken, auth-token-v2 -> access/token...).
