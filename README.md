@@ -47,8 +47,8 @@ recorder ─► sessions/<id>/ ─► processor ─► trajectory.json + playbac
 
 Two Windows executables are built into `desktop/dist/` (both unsigned: SmartScreen shows "More info" → "Run anyway"):
 
-- `thinkaloud Setup 0.2.1.exe`: installer with Start menu and desktop shortcuts.
-- `thinkaloud-portable-0.2.1.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
+- `thinkaloud Setup 0.2.2.exe`: installer with Start menu and desktop shortcuts.
+- `thinkaloud-portable-0.2.2.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
   folder on each start, so it takes a few seconds longer to open).
 
 Rebuild both with `cd desktop && npm run dist` (installer and portable), or run from source (below). Then:
