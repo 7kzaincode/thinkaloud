@@ -11,6 +11,8 @@ the reason the person gave, taken from their narration and lined up in time. A r
 anything the speech-to-text got wrong, decides whether the task was actually done, and exports a checksummed,
 validated dataset, including a version in Claude's computer-use format. Everything runs locally.
 
+**[▶ Watch the demo](https://youtu.be/wO7iA8KOQFY)** · [Download for Windows](https://github.com/7kzaincode/thinkaloud/releases/latest) · [Try the sample on any OS](#any-os-review-the-sample-recording)
+
 ![A step on the review page: the screen before the click, the element that was clicked, and the narration that explains it](docs/images/review.png)
 
 ## Try it
