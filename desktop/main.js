@@ -225,6 +225,12 @@ function createMainWindow() {
       dialog.showMessageBox(win, { type: "info", message: "A recording is in progress. Stop it first (F9 or the Stop button)." });
     }
   });
+  // Closing the main window quits the app. Without this the hidden recording pill kept the app
+  // alive with no visible window, and opening thinkaloud again only "restored" the closed window.
+  win.on("closed", () => {
+    win = null;
+    app.quit();
+  });
 }
 
 function createPill() {
@@ -363,7 +369,12 @@ ipcMain.handle("settings:setAiProvider", async (_e, provider) => {
 });
 
 function restoreMain() {
-  if (!win || win.isDestroyed()) return;
+  if (!win || win.isDestroyed()) {
+    if (quitting) return;
+    createMainWindow();
+    if (baseUrl) win.loadURL(baseUrl);
+    return;
+  }
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
