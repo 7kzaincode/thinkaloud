@@ -1,14 +1,80 @@
 # thinkaloud
 
-A prototype recorder for think-aloud computer-use demonstrations. An expert does a real task on their
-Windows computer while talking through it. thinkaloud records what they did (clicks, typing, scrolls),
-what the screen looked like **before and after** each action, a low-frame-rate screen video, and why
-they did it (their narration). It turns that into reviewable steps, checks the result for problems,
-lets a person review and correct it (optionally with AI suggestions they confirm or reject), and
-exports validated datasets, including a representation using Anthropic's computer-use toolset.
+[![CI](https://github.com/7kzaincode/thinkaloud/actions/workflows/ci.yml/badge.svg)](https://github.com/7kzaincode/thinkaloud/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-It started as a weekend project and grew a lot past that; it is still a prototype. Read
-[Known limitations](#known-limitations) before trusting it with anything important.
+**Record an expert doing a real task on their computer while they think out loud, and turn it into reviewed,
+validated training data for computer-use agents.**
+
+Every click, keystroke and scroll is paired with the screen right before and after it, the UI element it hit, and
+the reason the person gave, taken from their narration and lined up in time. A reviewer steps through it, fixes
+anything the speech-to-text got wrong, decides whether the task was actually done, and exports a checksummed,
+validated dataset, including a version in Claude's computer-use format. Everything runs locally.
+
+![A step on the review page: the screen before the click, the element that was clicked, and the narration that explains it](docs/images/review.png)
+
+## Try it
+
+| You have | What you can do | Time |
+|---|---|---|
+| **Windows 10/11** | [Download the app](https://github.com/7kzaincode/thinkaloud/releases/latest) and record a task of your own | ~5 min |
+| **macOS, Linux or Windows** | Open the review app on the bundled sample recording ([below](#any-os-review-the-sample-recording)) | ~3 min |
+
+### Windows: record your own
+
+1. From the [latest release](https://github.com/7kzaincode/thinkaloud/releases/latest), download
+   `thinkaloud-portable-<version>.exe` (a single file, nothing to install) or `thinkaloud-setup-<version>.exe` (an installer).
+2. The app isn't code-signed, so Windows SmartScreen will warn you: click **More info → Run anyway**.
+3. Click **New recording**, type the task and what "done" looks like, pick your microphone and click **Start
+   recording**. Do the task while saying what you're doing and why, then press **F9** (or **Stop**).
+4. The recording is transcribed and checked on your computer and opens for review. The first time, the speech model
+   is downloaded once (1.6 GB for the default; a 145 MB one is under **Settings → Speech recognition**).
+
+Browser tasks work best in **Chrome or Edge**: they tell Windows which button or field was clicked. Recordings
+stay in `Documents\thinkaloud`; nothing is uploaded unless you turn on the optional AI review and click one of its
+buttons.
+
+### Any OS: review the sample recording
+
+You need [Node.js 22](https://nodejs.org) and git.
+
+```bash
+git clone https://github.com/7kzaincode/thinkaloud.git
+cd thinkaloud/viewer
+npm install
+npm run dev
+```
+
+Open **http://127.0.0.1:3217** and click the sample (a narrated flight search, synthetic, with screen video and
+before/after screenshots). On the review page: `←` `→` step through, `space` plays the selected step with what was
+said about it, `b` / `a` switch between the before and after screenshots, `e` jumps to the end-state checklist.
+Recording itself needs Windows.
+
+To also use **Export** (and processing) from the viewer, set up Python 3.12 in the repository root:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r processor/requirements.txt       # macOS / Linux
+```
+```powershell
+python -m venv .venv; .venv\Scripts\pip install -r processor\requirements.txt      # Windows
+```
+
+## What it does
+
+- **Records** (Windows): clicks, typing, scrolls and drags with the UI element under the pointer (Windows UI
+  Automation), screenshots before and after each action, a 4 fps screen video, and the narration. Password fields
+  are masked as they're typed, and **F8** pauses all capture.
+- **Processes** (on your computer): speech-to-text with faster-whisper, the narration split into sentences and
+  matched to the action each one explains (and whether it was said before or after it), plus quality checks for
+  missing reasoning, typed emails and secrets, sensitive URLs and stale screenshots.
+- **Reviews**: step through before / after / replay, fix the reasoning, flag steps, check the final screen against a
+  checklist built from "done when", and record a human verdict. Optional AI suggestions (Anthropic or Gemini) are only
+  ever suggestions.
+- **Exports**: a vendor-neutral dataset and the same steps as Claude computer-use tool calls, with checksums and a
+  standalone validator. A privacy gate holds back recordings with open privacy flags.
+- **Scales**: process a backlog with a worker pool, natively or in Docker; rename, delete and restore recordings.
+
+<p align="center"><img src="docs/images/end-state.png" width="49%" alt="End state: the final screen checked against a checklist, with a human verdict"> <img src="docs/images/recordings.png" width="49%" alt="Recordings page: narration coverage, flags and review status per recording"></p>
 
 ## Why
 
@@ -19,7 +85,9 @@ the motion was easy; knowing whether the task was actually done right was hard. 
 **what "done" means** before recording starts, and a human checks the final screen against it. Only a
 recording a person marked *Task done* is a positive demonstration.
 
-## The workflow
+It is still a prototype; read [Known limitations](#known-limitations) before trusting it with anything important.
+
+## How it works
 
 ```
 New recording (task + "done when")          Recordings page                    Review page
@@ -38,32 +106,11 @@ recorder ─► sessions/<id>/ ─► processor ─► trajectory.json + playbac
 | AI review | `ai_review.py` | Narration checks, checklist drafts, final-screen checks via the Anthropic API or Google Gemini. Suggestions only. |
 | Batch | `batch.py`, `docker-compose.yml` | Many recordings, bounded concurrency, persistent status, retries, restart handling. Native or Docker. |
 | Viewer | `viewer/` (Next.js) | Recordings/batch page, review page, record screen, settings. |
-| Desktop app | `desktop/` (Electron), `engine/` (PyInstaller) | One Windows app wrapping all of the above; installer bundles Python. |
-| Sample | `samples/synthetic-flight/` | A synthetic 0.2 session (with narration audio and video) that exercises every rule. |
+| Desktop app | `desktop/` (Electron), `engine/` (PyInstaller) | One Windows app wrapping all of the above; the build bundles Python. |
+| Sample | `samples/synthetic-flight/` | A synthetic session (with narration audio and video) that exercises every rule. |
 
-## Quick start
 
-### Desktop app
-
-Two Windows executables are built into `desktop/dist/` (both unsigned: SmartScreen shows "More info" → "Run anyway"):
-
-- `thinkaloud Setup 0.2.2.exe`: installer with Start menu and desktop shortcuts.
-- `thinkaloud-portable-0.2.2.exe`: a single file, no install; double-click to run (it unpacks itself to a temp
-  folder on each start, so it takes a few seconds longer to open).
-
-Rebuild both with `cd desktop && npm run dist` (installer and portable), or run from source (below). Then:
-
-1. **New recording**: type the task and what "done" looks like, pick your microphone (the level meter
-   should move when you talk; virtual devices are called out), **Start recording**.
-2. After a 3-second countdown the window gets out of the way. A pill at the bottom of the screen shows
-   the timer, mic level, **Pause** (F8) and **Stop** (F9). The pill is excluded from screen capture and
-   its clicks are not recorded. While paused nothing is captured.
-3. When you stop, the recording is processed and opens for review.
-
-Recordings are saved in `Documents\thinkaloud\sessions`, exports in `Documents\thinkaloud\exports`, deleted
-recordings in `Documents\thinkaloud\trash` (until you empty it), speech models in `Documents\thinkaloud\models`.
-
-### Speech recognition
+### Speech recognition and matching narration to steps
 
 Narration is transcribed on this computer with [faster-whisper](https://github.com/SYSTRAN/faster-whisper); nothing
 is uploaded. **Settings → Speech recognition** picks the model:
@@ -93,24 +140,51 @@ exports say which model made the text (`recording.transcript`). A transcript sup
 bundled sample) is never replaced. `THINKALOUD_WHISPER_MODEL` overrides the setting (CLI, Docker, admins);
 `--model` does the same per run, `--language auto` detects the language instead of assuming English.
 
-### From source (development)
+## Development
 
-Requires Windows 10/11 for recording, Python 3.12, Node 22.
+### Windows: everything, including recording
 
-```bash
+Requires Windows 10/11, Python 3.12 and Node 22.
+
+```powershell
 python -m venv .venv
-.venv/Scripts/pip install -r recorder/requirements.txt -r processor/requirements-dev.txt
-cd viewer && npm install && cd ..
-cd desktop && npm install && npm start          # the desktop app (viewer via `next dev`, engine from .venv)
+.venv\Scripts\pip install -r recorder\requirements.txt -r processor\requirements-dev.txt
+cd viewer; npm install; cd ..
+cd desktop; npm install; npm start        # the desktop app (viewer via next dev, engine from .venv)
 ```
 
-Or the parts separately:
+Or run the parts separately:
+
+```powershell
+.venv\Scripts\python recorder\record.py --task "..." --criteria "..."   # F8 pause, F9 stop; --fps, --no-uia, --no-video
+cd processor; ..\.venv\Scripts\python -m thinkaloud ..\sessions       # process every new recording
+cd viewer; npm run dev                                                # http://127.0.0.1:3217 (reads ../sessions and ../samples)
+```
+
+### Tests
+
+The processor and viewer run on any OS; the recorder is Windows-only.
 
 ```bash
-.venv/Scripts/python recorder/record.py --task "..." --criteria "..."   # F8 pause, F9 stop; --fps, --settle, --no-uia, --no-video
-cd processor && ../.venv/Scripts/python -m thinkaloud ../sessions        # process everything new
-cd viewer && npm run dev                                                 # http://127.0.0.1:3217 (reads ../sessions and ../samples)
+# macOS / Linux (on Windows use .venv\Scripts\ instead of .venv/bin/)
+python3 -m venv .venv && .venv/bin/pip install -r processor/requirements-dev.txt
+cd processor && ../.venv/bin/python -m pytest              # processor: steps, alignment, QC, exports, batch
+cd ../viewer && npm install && npm test && npm run typecheck
 ```
+
+On Windows, `cd recorder; ..\.venv\Scripts\python -m pytest` runs the recorder tests (they use real UI Automation).
+[CI](.github/workflows/ci.yml) runs the processor and viewer checks on Linux for every push.
+End-to-end checks that drive the real desktop (`scripts/e2e_capture.py`, `scripts/app_journey.mjs`) inject input,
+so they refuse to start unless the machine has been idle for two minutes.
+
+### Build the Windows app
+
+```powershell
+cd desktop; npm run dist     # desktop\dist\thinkaloud-setup-<version>.exe and thinkaloud-portable-<version>.exe
+```
+
+This builds the viewer, freezes the Python engine with PyInstaller (`engine/build.ps1`) and packages both with
+electron-builder, so users don't need Python or Node.
 
 ### Batch processing in Docker
 
@@ -388,7 +462,7 @@ AI provider settings and key storage in the packaged app.
 Results and measurements are in [docs/VALIDATION_LOG.md](docs/VALIDATION_LOG.md) and `docs/evidence/`;
 [docs/IMPLEMENTATION_CHECKLIST.md](docs/IMPLEMENTATION_CHECKLIST.md) maps every requirement to its evidence.
 
-Measured on this machine (2560×1440, 4 fps): 60/60 screen changes in a 199 s run appeared in the first frame
+Measured on the development machine (2560×1440, 4 fps): 60/60 screen changes in a 199 s run appeared in the first frame
 captured after the input, never earlier; event → first frame showing it 16–273 ms (one frame period + render);
 no dropped frames; audio clock drift 22.7 ppm.
 
@@ -443,3 +517,7 @@ scripts/     make_synthetic.py, e2e_capture.py + testbench/, smoke_record.py
 samples/     synthetic-flight/ (synthetic data only)
 docs/        IMPLEMENTATION_CHECKLIST.md, VALIDATION_LOG.md, evidence/, DEMO_SCRIPT.md
 ```
+
+## License
+
+[MIT](LICENSE). The bundled sample recording is synthetic.

@@ -82,7 +82,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "thinkaloud"
+      "shortcutName": "thinkaloud",
+      "artifactName": "thinkaloud-setup-${version}.${ext}"
     },
     "afterPack": "./afterPack.js",
     "portable": {

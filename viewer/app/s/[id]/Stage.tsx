@@ -121,7 +121,7 @@ const Stage = forwardRef<HTMLVideoElement, Props>(function Stage({ id, t, step, 
               {step && obs.offset_s !== undefined && ` (${fmtOffset(obs.offset_s)} the action ${view === "after" ? "ended" : "started"})`}
               {obs.source === "video" && " · from video (lossy)"}
             </span>
-            <span>{STATUS_TEXT[obs.status] ?? ""}</span>
+            <span>{step ? STATUS_TEXT[obs.status] ?? "" : "the screen when the recording ended"}</span>
           </>
         ) : <span>—</span>}
       </div>
